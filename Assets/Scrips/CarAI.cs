@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using UnityEngine;
 using System;
+using Random = UnityEngine.Random;
 
 
 namespace UnityStandardAssets.Vehicles.Car
@@ -29,14 +30,51 @@ namespace UnityStandardAssets.Vehicles.Car
 
             List<Vector3> my_path = new List<Vector3>();
 
+
             my_path.Add(start_pos);
 
-            for (int i = 0; i < 3; i++)
+            // ----------- RRT* -----------
+            // TODO: Use other dimensions of the path tree for higher (or lower) resolution?
+            //int[,] path = new int[terrain_manager.myInfo.traversability.GetLength(0), terrain_manager.myInfo.traversability.GetLength(1)];
+            PathTree path = new PathTree(nånting nånting start_pos);
+
+            // - Pick a random point a in X.
+            // TODO: Probably better to first take out the non-obstacle squares and pick a random from that (to avoid long loop).
+            float a = 1;
+            while (a != 1)
             {
-                Vector3 waypoint = start_pos;
-                my_path.Add(waypoint);
+                int rnd_i = Random.Range(0, terrain_manager.myInfo.traversability.GetLength(0));
+                int rnd_j = Random.Range(0, terrain_manager.myInfo.traversability.GetLength(1));
+                a = terrain_manager.myInfo.traversability[rnd_i, rnd_j];
             }
-            my_path.Add(goal_pos);
+            //Debug.Log("i: " + terrain_manager.myInfo.traversability.GetLength(0));
+            //Debug.Log("j: " + terrain_manager.myInfo.traversability.GetLength(1));
+            //Debug.Log("rnd_i: " + rnd_i);
+            //Debug.Log("rnd_j: " + rnd_j);
+
+            // - Find b, the node of the tree closest to a.
+
+            // - Find control inputs u to steer the robot from b to a.
+
+            // - Apply control inputs u for time d, so robot reaches c.
+
+            // - If no collisions occur in getting from a to c:
+
+            //      - Find set of Neighbors N of c.
+
+            //      - Choose Best parent.
+
+            //      - Try to adopt Neighbors (if good).
+
+            // ----------- /RRT* -----------
+
+
+            //for (int i = 0; i < 3; i++)
+            //{
+            //    Vector3 waypoint = start_pos;
+            //    my_path.Add(waypoint);
+            //}
+            //my_path.Add(goal_pos);
 
 
             // Plot your path to see if it makes sense
@@ -70,5 +108,39 @@ namespace UnityStandardAssets.Vehicles.Car
             m_Car.Move(1f, 1f, 1f, 0f);
 
         }
+    }
+
+    class PathTree<T>
+    {
+        private T data;
+        private LinkedList<PathTree<T>> children;
+
+        public PathTree(T data)
+        {
+            this.data = data;
+            children = new LinkedList<PathTree<T>>();
+        }
+
+        public PathTree<T> AddChild(T data)
+        {
+            PathTree<T> new_child = new PathTree<T>(data);
+            children.AddFirst(new_child);
+            return new_child;
+        }
+
+        public PathTree<T> GetChild(int i)
+        {
+            foreach (PathTree<T> n in children)
+                if (--i == 0)
+                    return n;
+            return null;
+        }
+
+        //public void Traverse(PathTree<T> node, TreeVisitor<T> visitor)
+        //{
+        //    visitor(node.data);
+        //    foreach (PathTree<T> kid in node.children)
+        //        Traverse(kid, visitor);
+        //}
     }
 }
