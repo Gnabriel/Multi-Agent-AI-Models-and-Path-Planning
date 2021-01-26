@@ -33,7 +33,7 @@ namespace UnityStandardAssets.Vehicles.Car
 
             for (int i = 0; i < 3; i++)
             {
-                Vector3 waypoint = start_pos
+                Vector3 waypoint = start_pos;
                 my_path.Add(waypoint);
             }
             my_path.Add(goal_pos);
