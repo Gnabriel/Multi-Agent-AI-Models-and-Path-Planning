@@ -15,6 +15,12 @@ namespace UnityStandardAssets.Vehicles.Car
         public GameObject terrain_manager_game_object;
         TerrainManager terrain_manager;
 
+        private void Steer(Vector3 a, Vector3 b)
+        {
+            // The Reeds-Shepp curves are calculated in the steer function.
+            return;
+        }
+
         private void Start()
         {
             // get the car controller
@@ -34,31 +40,45 @@ namespace UnityStandardAssets.Vehicles.Car
             my_path.Add(start_pos);
 
             // ----------- RRT* -----------
-            // TODO: Use other dimensions of the path tree for higher (or lower) resolution?
-            //int[,] path = new int[terrain_manager.myInfo.traversability.GetLength(0), terrain_manager.myInfo.traversability.GetLength(1)];
-            PathTree path = new PathTree(nånting nånting start_pos);
+            PathTree<Vector3> root = new PathTree<Vector3>(start_pos);
 
             // - Pick a random point a in X.
             // TODO: Probably better to first take out the non-obstacle squares and pick a random from that (to avoid long loop).
-            float a = 1;
-            while (a != 1)
+            Vector3 a;
+            Vector3 rnd_pos;
+            float square = 1;
+            while (true)
             {
                 int rnd_i = Random.Range(0, terrain_manager.myInfo.traversability.GetLength(0));
                 int rnd_j = Random.Range(0, terrain_manager.myInfo.traversability.GetLength(1));
-                a = terrain_manager.myInfo.traversability[rnd_i, rnd_j];
+                square = terrain_manager.myInfo.traversability[rnd_i, rnd_j];
+                rnd_pos = new Vector3(terrain_manager.myInfo.get_x_pos(rnd_i), 0.0f, terrain_manager.myInfo.get_z_pos(rnd_j));
+                if (square != 1 && root.GetChild(rnd_pos) is null) {                // Non-obstacle and not already in tree.
+                    a = rnd_pos;
+                    break;
+                }
             }
-            //Debug.Log("i: " + terrain_manager.myInfo.traversability.GetLength(0));
-            //Debug.Log("j: " + terrain_manager.myInfo.traversability.GetLength(1));
-            //Debug.Log("rnd_i: " + rnd_i);
-            //Debug.Log("rnd_j: " + rnd_j);
 
             // - Find b, the node of the tree closest to a.
+            Vector3 b;
+            float dist;
+            float min_dist = float.PositiveInfinity;
+            foreach (Vector3 child in root.children)
+            {
+                dist = Vector3.Distance(child, a);
+                if (dist < min_dist)
+                {
+                    min_dist = dist;
+                    b = child;
+                }
+            }
 
             // - Find control inputs u to steer the robot from b to a.
-
             // - Apply control inputs u for time d, so robot reaches c.
+            Vector3 c = Steer(a, b);
 
             // - If no collisions occur in getting from a to c:
+            // kolla föreläsning
 
             //      - Find set of Neighbors N of c.
 
@@ -110,10 +130,11 @@ namespace UnityStandardAssets.Vehicles.Car
         }
     }
 
+
     class PathTree<T>
     {
         private T data;
-        private LinkedList<PathTree<T>> children;
+        public LinkedList<PathTree<T>> children;
 
         public PathTree(T data)
         {
@@ -135,12 +156,11 @@ namespace UnityStandardAssets.Vehicles.Car
                     return n;
             return null;
         }
+    }
 
-        //public void Traverse(PathTree<T> node, TreeVisitor<T> visitor)
-        //{
-        //    visitor(node.data);
-        //    foreach (PathTree<T> kid in node.children)
-        //        Traverse(kid, visitor);
-        //}
+
+    public static class ReedsShepp
+    {
+
     }
 }
