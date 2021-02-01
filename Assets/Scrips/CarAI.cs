@@ -46,14 +46,16 @@ namespace UnityStandardAssets.Vehicles.Car
 
             // ----------- Initializations -----------
 
-            int x_N = terrain_manager.myInfo.x_N;
-            int z_N = terrain_manager.myInfo.z_N;
+            float x_low = terrain_manager.myInfo.x_low;
+            float x_high = terrain_manager.myInfo.x_high;
+            float z_low = terrain_manager.myInfo.z_low;
+            float z_high = terrain_manager.myInfo.z_high;
             var traversability = terrain_manager.myInfo.traversability;
 
 
             // ----------- RRT* -----------
 
-            int iterations = 100;
+            int iterations = 1000;
             PathTree<Vector3> root = new PathTree<Vector3>(start_pos);
 
             for (int i = 0; i < iterations; i++)
@@ -63,13 +65,13 @@ namespace UnityStandardAssets.Vehicles.Car
                 Vector3 rnd_pos;
                 while (true)
                 {
-                    int x_rnd = Random.Range(0, x_N);
-                    int z_rnd = Random.Range(0, z_N);
+                    float x_rnd = Random.Range(x_low, x_high);
+                    float z_rnd = Random.Range(z_low, z_high);
                     int i_rnd = terrain_manager.myInfo.get_i_index(x_rnd);
                     int j_rnd = terrain_manager.myInfo.get_j_index(z_rnd);
                     rnd_pos = new Vector3(x_rnd, 0.0f, z_rnd);
 
-                    if (traversability[i_rnd, j_rnd] != 0.0f && PathTree<Vector3>.GetNode(rnd_pos) is null)        // Non-obstacle and not already in tree.
+                    if (traversability[i_rnd, j_rnd] == 0.0f && PathTree<Vector3>.GetNode(rnd_pos) is null)        // Non-obstacle and not already in tree.
                     {
                         a_pos = rnd_pos;
                         break;
@@ -97,18 +99,20 @@ namespace UnityStandardAssets.Vehicles.Car
                 // - If no collisions occur in getting from a to c:
                 if (CheckCollision(b, c_pos) is false)
                 {
-                    // For now only RRT:
-                    PathTree<Vector3> c = b.AddChild(c_pos);
-
                     //      - Find set of Neighbors N of c.
 
                     //      - Choose Best parent.
 
                     //      - Try to adopt Neighbors (if good).
 
-                    my_path.Add(c_pos);
+
+                    // For now only RRT:
+                    PathTree<Vector3> c = b.AddChild(c_pos);
+
+                    Debug.DrawLine(b.GetPosition(), c.GetPosition(), Color.red, 100f);
                 }
             }
+
         // ----------- /RRT* -----------
 
 
@@ -172,6 +176,11 @@ namespace UnityStandardAssets.Vehicles.Car
             PathTree<T> new_child = new PathTree<T>(position);
             children.AddFirst(new_child);
             return new_child;
+        }
+
+        public T GetPosition()
+        {
+            return this.position;
         }
 
         public static PathTree<T> GetNode(T position)
