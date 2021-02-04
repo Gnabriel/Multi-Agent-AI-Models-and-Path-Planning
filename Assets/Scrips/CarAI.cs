@@ -11,7 +11,7 @@ namespace UnityStandardAssets.Vehicles.Car
     public class CarAI : MonoBehaviour
     {
         bool DEBUG_COLLISION = false;
-        bool DEBUG_RRT_LIVE = true;
+        bool DEBUG_RRT_LIVE = false;
 
         private CarController m_Car; // the car controller we want to use
 
@@ -22,6 +22,14 @@ namespace UnityStandardAssets.Vehicles.Car
         {
             // The Reeds-Shepp/Dubins curves are calculated in the steer function.
             return target_pos;       // Temporarily just return a.
+        }
+
+        private bool GenerateDubinsPath()
+        {
+            // Disclaimer: We did not write the code used to generate Dubins Path.
+            // Full credit: https://www.habrador.com/tutorials/unity-dubins-paths/3-dubins-paths-in-unity/
+            DubinsPath.DubinsDebug apa = new DubinsPath.DubinsDebug();
+            return false;
         }
 
         private bool CheckCollision(PathTree<Vector3> source, Vector3 target_pos)
