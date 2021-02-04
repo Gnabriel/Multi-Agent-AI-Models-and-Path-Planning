@@ -10,7 +10,7 @@ namespace UnityStandardAssets.Vehicles.Car
     [RequireComponent(typeof(CarController))]
     public class CarAI : MonoBehaviour
     {
-        bool DEBUG = true;
+        bool DEBUG_COLLISION = false;
         bool DEBUG_RRT_LIVE = true;
 
         private CarController m_Car; // the car controller we want to use
@@ -26,35 +26,37 @@ namespace UnityStandardAssets.Vehicles.Car
 
         private bool CheckCollision(PathTree<Vector3> source, Vector3 target_pos)
         {
-            if (DEBUG)
+            if (DEBUG_COLLISION)
             {
                 return false;       // Disables collision detection.
             }
 
             float step = 1f;        // TODO: Experiment with the step size.
-            int sub_i;
-            int sub_j;
-            Vector3 sub_pos = source.GetPosition();
+            int current_i;
+            int current_j;
+            Vector3 current_pos = source.GetPosition();
 
             //Debug.Log("---------");
-            //Debug.Log("Source: " + sub_pos.ToString());
-            //Debug.Log("Target: " + target_pos.ToString());
+            //Debug.Log("Source position: " + current_pos.ToString());
+            //Debug.Log("Target position: " + target_pos.ToString());
 
-            while (sub_pos != target_pos)
+            while (current_pos != target_pos)
             {
-                sub_pos = Vector3.MoveTowards(sub_pos, target_pos, step);
-                sub_i = terrain_manager.myInfo.get_i_index(sub_pos[0]);
-                sub_j = terrain_manager.myInfo.get_j_index(sub_pos[2]);
+                current_pos = Vector3.MoveTowards(current_pos, target_pos, step);
+                current_i = terrain_manager.myInfo.get_i_index(current_pos[0]);
+                current_j = terrain_manager.myInfo.get_j_index(current_pos[2]);
 
-                //Debug.Log(sub_pos);
+                //Debug.Log("Current position: " + current_pos.ToString());
+                //Debug.Log("Current i = " + current_i.ToString() + ", j = " + current_j.ToString());
 
-                if (terrain_manager.myInfo.traversability[sub_i, sub_i] == 1)       // Collision.
+                if (terrain_manager.myInfo.traversability[current_i, current_j] == 1)       // Collision.
                 {
-                    //Debug.Log("Collision found: " + sub_pos.ToString() + " at i = " + sub_i.ToString() + ", j = " + sub_j.ToString());
+                    //Debug.Log("Collision found: " + current_pos.ToString() + " at i = " + current_i.ToString() + ", j = " + current_j.ToString());
                     return true;
                 }
             }
 
+            //Debug.Log("No collision found. This path is clear.");
             //Debug.Log("---------");
             //Debug.Log("");
             return false;                                                           // No collision.
@@ -269,7 +271,7 @@ namespace UnityStandardAssets.Vehicles.Car
         IEnumerator DrawRRTLive(PathTree<Vector3> root)
         {
             // Draws the path live with a BFS search.
-            WaitForSeconds wait = new WaitForSeconds(0.01f);                 // Wait time between lines being drawn.
+            WaitForSeconds wait = new WaitForSeconds(0.001f);                 // Wait time between lines being drawn.
             LinkedList<PathTree<Vector3>> queue = new LinkedList<PathTree<Vector3>>();
             queue.AddLast(root);
 
