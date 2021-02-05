@@ -309,7 +309,6 @@ namespace UnityStandardAssets.Vehicles.Car
                     break;
                 }
             }
-
             StartCoroutine(DrawPathLive(goal));                 // Draw the shortest path to goal LIVE.
         }
 
@@ -442,22 +441,6 @@ namespace UnityStandardAssets.Vehicles.Car
                 }
             }
             return null;
-        }
-    }
-
-
-    public class DubinsPath
-    {
-        // Two circles at the beginning of the path.
-        Vector3 start_left_circle;
-        Vector3 start_right_circle;
-        // Two circles at the end of the path.
-        Vector3 goal_left_circle;
-        Vector3 goal_right_circle;
-
-        public DubinsPath(Vector3 start_pos, float start_dir, Vector3 goal_pos, float goal_dir)     // Start/goal position and direction of the car.
-        {
-
         }
     }
 }
