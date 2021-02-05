@@ -10,7 +10,6 @@ namespace UnityStandardAssets.Vehicles.Car
     [RequireComponent(typeof(CarController))]
     public class CarAI : MonoBehaviour
     {
-        bool DEBUG_COLLISION = false;
         bool DEBUG_RRT_LIVE = false;
 
         private CarController m_Car; // the car controller we want to use
@@ -28,17 +27,12 @@ namespace UnityStandardAssets.Vehicles.Car
         {
             // Disclaimer: We did not write the code used to generate Dubins Path.
             // Full credit: https://www.habrador.com/tutorials/unity-dubins-paths/3-dubins-paths-in-unity/
-            DubinsPath.DubinsDebug apa = new DubinsPath.DubinsDebug();
+            //DubinsPath.DubinsDebug apa = new DubinsPath.DubinsDebug();
             return false;
         }
 
         private bool CheckCollision(PathTree<Vector3> source, Vector3 target_pos)
         {
-            if (DEBUG_COLLISION)
-            {
-                return false;       // Disables collision detection.
-            }
-
             float step = 1f;        // TODO: Experiment with the step size.
             int current_i;
             int current_j;
@@ -95,6 +89,67 @@ namespace UnityStandardAssets.Vehicles.Car
             return neighbors;
         }
 
+        private PathTree<Vector3> RRTStarExpand(Vector3 a_pos)
+        {
+            // - Find b, the node of the tree closest to a.
+            PathTree<Vector3> b = null;
+            float dist;
+            float min_dist = float.PositiveInfinity;
+            foreach (KeyValuePair<Vector3, PathTree<Vector3>> kvp in PathTree<Vector3>.node_dict)
+            {
+                dist = GetDistance(kvp.Key, a_pos);
+                if (dist < min_dist)
+                {
+                    min_dist = dist;
+                    b = kvp.Value;
+                }
+            }
+
+            // - Find control inputs u to steer the robot from b to a.
+            // - Apply control inputs u for time t, so robot reaches c.
+            Vector3 c_pos = Steer(b, a_pos);
+
+            // - If no collisions occur in getting from b to c:
+            if (CheckCollision(b, c_pos) is false)
+            {
+                //      - Add c as child.
+                float b_to_c_cost = GetDistance(b.GetPosition(), c_pos);
+                PathTree<Vector3> c = b.AddChild(c_pos, b_to_c_cost);
+
+                //      - Find set of Neighbors N of c.
+                List<PathTree<Vector3>> c_neighbors = GetNeighbors(c);
+
+                //      - Choose Best parent.
+                PathTree<Vector3> best_parent = b;
+                float c_cost_min = c.GetCost();
+
+                foreach (PathTree<Vector3> c_neighbor in c_neighbors)
+                {
+                    float neighbor_to_c_cost = GetDistance(c_neighbor.GetPosition(), c.GetPosition());
+                    float c_cost_new = c_neighbor.GetCost() + neighbor_to_c_cost;
+                    if (CheckCollision(c_neighbor, c.GetPosition()) is false && c_cost_new < c_cost_min)
+                    {
+                        best_parent = c_neighbor;
+                        c_cost_min = c_cost_new;
+                    }
+                }
+                best_parent.AdoptChild(c, c_cost_min);
+
+                //      - Try to adopt Neighbors (if good).
+                foreach (PathTree<Vector3> c_neighbor in c_neighbors)
+                {
+                    float c_to_neighbor_cost = GetDistance(c.GetPosition(), c_neighbor.GetPosition());
+                    float neighbor_cost_new = c.GetCost() + c_to_neighbor_cost;
+                    if (CheckCollision(c, c_neighbor.GetPosition()) is false && neighbor_cost_new < c_neighbor.GetCost())
+                    {
+                        c.AdoptChild(c_neighbor, neighbor_cost_new);
+                    }
+                }
+                return c;
+            }
+            return null;
+        }
+
         private void Start()
         {
             // get the car controller
@@ -125,10 +180,12 @@ namespace UnityStandardAssets.Vehicles.Car
 
             // ----------- RRT* -----------
 
-            int iterations = 5000;
+            //int iterations = 5000;
+            int tree_size = 5000;
             PathTree<Vector3> root = new PathTree<Vector3>(start_pos);
 
-            for (int i = 0; i < iterations; i++)
+            //for (int i = 0; i < iterations; i++)
+            while (PathTree<Vector3>.node_dict.Count < tree_size)
             {
                 // - Pick a random point a in X.
                 Vector3 a_pos;
@@ -148,62 +205,15 @@ namespace UnityStandardAssets.Vehicles.Car
                     }
                 }
 
-                // - Find b, the node of the tree closest to a.
-                PathTree<Vector3> b = root;
-                float dist;
-                float min_dist = float.PositiveInfinity;
-                foreach (KeyValuePair<Vector3, PathTree<Vector3>> kvp in PathTree<Vector3>.node_dict)
-                {
-                    dist = GetDistance(kvp.Key, a_pos);
-                    if (dist < min_dist)
-                    {
-                        min_dist = dist;
-                        b = kvp.Value;
-                    }
-                }
+                RRTStarExpand(a_pos);
+            }
 
-                // - Find control inputs u to steer the robot from b to a.
-                // - Apply control inputs u for time t, so robot reaches c.
-                Vector3 c_pos = Steer(b, a_pos);
+            // Add the goal to the RRT* path.
+            PathTree<Vector3> goal = RRTStarExpand(goal_pos);
 
-                // - If no collisions occur in getting from b to c:
-                if (CheckCollision(b, c_pos) is false)
-                {
-                    //      - Add c as child.
-                    float b_to_c_cost = GetDistance(b.GetPosition(), c_pos);
-                    PathTree<Vector3> c = b.AddChild(c_pos, b_to_c_cost);
-
-                    //      - Find set of Neighbors N of c.
-                    List<PathTree<Vector3>> c_neighbors = GetNeighbors(c);
-
-                    //      - Choose Best parent.
-                    PathTree<Vector3> best_parent = b;
-                    float c_cost_min = c.GetCost();
-
-                    foreach (PathTree<Vector3> c_neighbor in c_neighbors)
-                    {
-                        float neighbor_to_c_cost = GetDistance(c_neighbor.GetPosition(), c.GetPosition());
-                        float c_cost_new = c_neighbor.GetCost() + neighbor_to_c_cost;
-                        if (CheckCollision(c_neighbor, c.GetPosition()) is false && c_cost_new < c_cost_min)
-                        {
-                            best_parent = c_neighbor;
-                            c_cost_min = c_cost_new;
-                        }
-                    }
-                    best_parent.AdoptChild(c, c_cost_min);
-
-                    //      - Try to adopt Neighbors (if good).
-                    foreach (PathTree<Vector3> c_neighbor in c_neighbors)
-                    {
-                        float c_to_neighbor_cost = GetDistance(c.GetPosition(), c_neighbor.GetPosition());
-                        float neighbor_cost_new = c.GetCost() + c_to_neighbor_cost;
-                        if (CheckCollision(c, c_neighbor.GetPosition()) is false && neighbor_cost_new < c_neighbor.GetCost())
-                        {
-                            c.AdoptChild(c_neighbor, neighbor_cost_new);
-                        }
-                    }
-
-                }
+            if (goal is null)
+            {
+                throw new Exception("ERROR: Goal was not added to the tree. Try searching for more nodes in RRT*.");
             }
 
             // ----------- /RRT* -----------
@@ -213,13 +223,14 @@ namespace UnityStandardAssets.Vehicles.Car
 
             if (DEBUG_RRT_LIVE)
             {
-                StartCoroutine(DrawRRTLive(root));                  // Draw the RRT* path LIVE.
+                StartCoroutine(DrawRRTLive(root, goal));                  // Draw the RRT* tree LIVE.
             }
             else
             {
-                DrawRRT();                                          // Draw the whole RRT* path immediately.
+                DrawRRT();                                          // Draw the whole RRT* tree immediately.
+                DrawPath(goal);                                     // Draw the shortest path to goal immediately.
             }
-            
+
             // ----------- /Draw RRT* Path -----------
 
 
@@ -270,16 +281,16 @@ namespace UnityStandardAssets.Vehicles.Car
                 PathTree<Vector3> node = kvp.Value;
                 foreach (PathTree<Vector3> child in node.GetChildren())
                 {
-                    Debug.DrawLine(node.GetPosition(), child.GetPosition(), Color.red, 100f);
+                    Debug.DrawLine(node.GetPosition(), child.GetPosition(), Color.red, float.PositiveInfinity);
                 }
             }
         }
 
 
-        IEnumerator DrawRRTLive(PathTree<Vector3> root)
+        IEnumerator DrawRRTLive(PathTree<Vector3> root, PathTree<Vector3> goal)
         {
             // Draws the path live with a BFS search.
-            WaitForSeconds wait = new WaitForSeconds(0.001f);                 // Wait time between lines being drawn.
+            WaitForSeconds wait = new WaitForSeconds(0.0001f);                 // Wait time between lines being drawn.
             LinkedList<PathTree<Vector3>> queue = new LinkedList<PathTree<Vector3>>();
             queue.AddLast(root);
 
@@ -290,13 +301,62 @@ namespace UnityStandardAssets.Vehicles.Car
                 foreach (PathTree<Vector3> child in node.GetChildren())
                 {
                     queue.AddLast(child);
-                    Debug.DrawLine(node.GetPosition(), child.GetPosition(), Color.red, 100f);
+                    Debug.DrawLine(node.GetPosition(), child.GetPosition(), Color.red, float.PositiveInfinity);
                     yield return wait;
                 }
                 if (queue.Last is null)
                 {
                     break;
                 }
+            }
+
+            StartCoroutine(DrawPathLive(goal));                 // Draw the shortest path to goal LIVE.
+        }
+
+
+        private LinkedList<PathTree<Vector3>> GetPath(PathTree<Vector3> target)
+        {
+            // Returns a list of nodes where path[0] is start and path[n] is target.
+            LinkedList<PathTree<Vector3>> path = new LinkedList<PathTree<Vector3>>();
+            PathTree<Vector3> current = target;
+            PathTree<Vector3> parent;
+            while (!(current.GetParent() is null))
+            {
+                parent = current.GetParent();
+                path.AddFirst(current);
+                current = parent;
+            }
+            return path;
+        }
+
+
+        private void DrawPath(PathTree<Vector3> target)
+        {
+            LinkedList<PathTree<Vector3>> path = GetPath(target);
+            foreach (PathTree<Vector3> node in path)
+            {
+                if (node.GetPosition() == target.GetPosition())
+                {
+                    // We have reached the goal.
+                    break;
+                }
+                PathTree<Vector3> parent = node.GetParent();
+                Debug.DrawLine(node.GetPosition(), parent.GetPosition(), Color.blue, float.PositiveInfinity);
+            }
+        }
+
+
+        IEnumerator DrawPathLive(PathTree<Vector3> target)
+        {
+            WaitForSeconds wait = new WaitForSeconds(0.2f);                 // Wait time between lines being drawn.
+            PathTree<Vector3> current = target;
+            PathTree<Vector3> parent;
+            while (!(current.GetParent() is null))
+            {
+                parent = current.GetParent();
+                Debug.DrawLine(current.GetPosition(), parent.GetPosition(), Color.blue, float.PositiveInfinity);
+                current = parent;
+                yield return wait;
             }
         }
     }
