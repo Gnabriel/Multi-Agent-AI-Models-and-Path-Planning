@@ -30,7 +30,7 @@ public class DroneAI : MonoBehaviour
         {
             target_vel = target_vel.normalized * max_spd;
         }
-
+        Debug.Log("filtered target vel: " + target_vel.ToString());
         Vector3 target_acc = (target_vel - current_vel) / dt;
         Debug.Log("target acc: " + target_acc.ToString());
         Vector3 true_acc = Vector3.zero;
@@ -44,14 +44,19 @@ public class DroneAI : MonoBehaviour
             true_acc = target_acc;
         }
 
-        true_acc = true_acc / max_acc; //matching true acc for weird multplication by max_acc in DroneController
         true_vel = current_vel + dt * true_acc;
+        if (true_vel.magnitude > max_spd)
+        {
+            true_vel = true_vel.normalized * max_spd;
+        }
         reached_pos = current_pos + dt * true_vel;
         Debug.Log("true acc! " + true_acc.ToString());
         Debug.Log("true vel! " + true_vel.ToString());
         Debug.Log("true reached pos! " + reached_pos.ToString());
 
-        List<Vector3> Dynamics = new List<Vector3> { reached_pos, true_vel, true_acc };
+        Vector3 input = true_acc / max_acc; //matching true acc for weird multplication by max_acc in DroneController
+
+        List<Vector3> Dynamics = new List<Vector3> { reached_pos, true_vel, input };
         return Dynamics;       // Temporarily just return a.
     }
 
