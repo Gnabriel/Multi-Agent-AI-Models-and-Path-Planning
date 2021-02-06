@@ -121,6 +121,73 @@ public class DroneAI : MonoBehaviour
         return neighbors;
     }
 
+    private PathTree<Vector3> RRTStarExpand(Vector3 a_pos)
+    {
+        // - Find b, the node of the tree closest to a.
+        PathTree<Vector3> b = null;
+        float dist;
+        float min_dist = float.PositiveInfinity;
+        foreach (KeyValuePair<Vector3, PathTree<Vector3>> kvp in PathTree<Vector3>.node_dict)
+        {
+            dist = GetDistance(kvp.Key, a_pos);
+            if (dist < min_dist)
+            {
+                min_dist = dist;
+                b = kvp.Value;
+            }
+        }
+
+        // - Find control inputs u to steer the robot from b to a.
+        // - Apply control inputs u for time t, so robot reaches c.
+        List<Vector3> c_dynamics = Steer(b, a_pos);
+        Vector3 c_pos = c_dynamics[0];
+        Vector3 c_vel = c_dynamics[1];
+        Vector3 c_acc = c_dynamics[2];
+
+        // - If no collisions occur in getting from b to c:
+        if (CheckCollision(b, c_pos) is false)
+        {
+            //      - Add c as child.
+            float b_to_c_cost = GetDistance(b.GetPosition(), c_pos);
+            PathTree<Vector3> c = b.AddChild(c_pos, c_vel, c_acc, b_to_c_cost);
+
+            //      - Find set of Neighbors N of c.
+            //List<PathTree<Vector3>> c_neighbors = GetNeighbors(c);
+
+            //      - Choose Best parent.
+            /*
+            PathTree<Vector3> best_parent = b;
+            float c_cost_min = c.GetCost();
+
+            foreach (PathTree<Vector3> c_neighbor in c_neighbors)
+            {
+                float neighbor_to_c_cost = GetDistance(c_neighbor.GetPosition(), c.GetPosition());
+                float c_cost_new = c_neighbor.GetCost() + neighbor_to_c_cost;
+                if (CheckCollision(c_neighbor, c.GetPosition()) is false && c_cost_new < c_cost_min)
+                {
+                    best_parent = c_neighbor;
+                    c_cost_min = c_cost_new;
+                }
+            }
+            best_parent.AdoptChild(c, c_cost_min);
+            */
+            /*
+            //      - Try to adopt Neighbors (if good).
+            foreach (PathTree<Vector3> c_neighbor in c_neighbors)
+            {
+                float c_to_neighbor_cost = GetDistance(c.GetPosition(), c_neighbor.GetPosition());
+                float neighbor_cost_new = c.GetCost() + c_to_neighbor_cost;
+                if (CheckCollision(c, c_neighbor.GetPosition()) is false && neighbor_cost_new < c_neighbor.GetCost())
+                {
+                    c.AdoptChild(c_neighbor, neighbor_cost_new);
+                }
+            }
+            */
+            return c;
+        }
+        return null;
+    }
+
     private void Start()
     {
         // get the drone controller
@@ -174,77 +241,15 @@ public class DroneAI : MonoBehaviour
                 }
             }
 
-            // - Find b, the node of the tree closest to a.
-            //PathTree<Vector3> b = root;
-            float dist;
-            float min_dist = float.PositiveInfinity;
-            PathTree<Vector3> b = root;
-            foreach (KeyValuePair<Vector3, PathTree<Vector3>> kvp in PathTree<Vector3>.node_dict)
-            {
-                dist = GetDistance(kvp.Key, a_pos);
-                if (dist < min_dist)
-                {
-                    min_dist = dist;
-                    b = kvp.Value;
-                        Debug.Log("we is starting from: " + b.GetPosition().ToString());
-                }
-            }
+            RRTStarExpand(a_pos);
 
-            // - Find control inputs u to steer the robot from b to a.
-            // - Apply control inputs u for time t, so robot reaches c.
-            List<Vector3> c_dynamics = Steer(b, a_pos);
-            Vector3 c_pos = c_dynamics[0];
-            Vector3 c_vel = c_dynamics[1];
-            Vector3 c_acc = c_dynamics[2];
-            if(PathTree<Vector3>.GetNode(c_pos) != null)
-            {
-                Debug.Log("c is already there, trying again (c is as follows): " + c_pos.ToString());
-                break;
-            }
-                Debug.Log("we made it to the new: " + c_pos.ToString());
+        }
 
-                // - If no collisions occur in getting from b to c:
-                if (CheckCollision(b, c_pos) is false)
-            {
-                //      - Add c as child.
-                float b_to_c_cost = GetDistance(b.GetPosition(), c_pos);
-                PathTree<Vector3> c = b.AddChild(c_pos, c_vel, c_acc, b_to_c_cost);
+        PathTree<Vector3> goal = RRTStarExpand(goal_pos);
 
-                //      - Find set of Neighbors N of c.
-                //List<PathTree<Vector3>> c_neighbors = GetNeighbors(c);
-
-                //      - Choose Best parent.
-                /*
-                PathTree<Vector3> best_parent = b;
-                float c_cost_min = c.GetCost();
-
-                foreach (PathTree<Vector3> c_neighbor in c_neighbors)
-                {
-                    float neighbor_to_c_cost = GetDistance(c_neighbor.GetPosition(), c.GetPosition());
-                    float c_cost_new = c_neighbor.GetCost() + neighbor_to_c_cost;
-                    if (CheckCollision(c_neighbor, c.GetPosition()) is false && c_cost_new < c_cost_min)
-                    {
-                        best_parent = c_neighbor;
-                        c_cost_min = c_cost_new;
-                    }
-                }
-                best_parent.AdoptChild(c, c_cost_min);
-                */
-
-                //      - Try to adopt Neighbors (if good).
-                /*
-                foreach (PathTree<Vector3> c_neighbor in c_neighbors)
-                {
-                    float c_to_neighbor_cost = GetDistance(c.GetPosition(), c_neighbor.GetPosition());
-                    float neighbor_cost_new = c.GetCost() + c_to_neighbor_cost;
-                    if (CheckCollision(c, c_neighbor.GetPosition()) is false && neighbor_cost_new < c_neighbor.GetCost())
-                    {
-                        c.AdoptChild(c_neighbor, neighbor_cost_new);
-                    }
-                }
-                */
-
-            }
+        if (goal is null)
+        {
+            Debug.Log("ERROR: Goal was not added to the tree. Try searching for more nodes in RRT*.");
         }
         // ----------- Draw RRT* Path -----------
 
@@ -254,12 +259,9 @@ public class DroneAI : MonoBehaviour
         }
         else
         {
-            DrawRRT();                                          // Draw the whole RRT* path immediately.
+            //DrawRRT();                                          // Draw the whole RRT* path immediately.
+            DrawPath(goal);
         }
-
-
-
-
 
     }
 
@@ -320,7 +322,39 @@ public class DroneAI : MonoBehaviour
             }
         }
     }
+
+    private LinkedList<PathTree<Vector3>> GetPath(PathTree<Vector3> target)
+    {
+        // Returns a list of nodes where path[0] is start and path[n] is target.
+        LinkedList<PathTree<Vector3>> path = new LinkedList<PathTree<Vector3>>();
+        PathTree<Vector3> current = target;
+        PathTree<Vector3> parent;
+        while (!(current.GetParent() is null))
+        {
+            parent = current.GetParent();
+            path.AddFirst(current);
+            current = parent;
+        }
+        return path;
+    }
+
+
+    private void DrawPath(PathTree<Vector3> target)
+    {
+        LinkedList<PathTree<Vector3>> path = GetPath(target);
+        foreach (PathTree<Vector3> node in path)
+        {
+            if (node.GetPosition() == target.GetPosition())
+            {
+                // We have reached the goal.
+                break;
+            }
+            PathTree<Vector3> parent = node.GetParent();
+            Debug.DrawLine(node.GetPosition(), parent.GetPosition(), Color.blue, float.PositiveInfinity);
+        }
+    }
 }
+
 
 
 class PathTree<T>
