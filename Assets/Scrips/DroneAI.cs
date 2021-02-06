@@ -64,6 +64,41 @@ public class DroneAI : MonoBehaviour
         return Dynamics;       // Return all data for the reached node
     }
 
+    private List<Vector3> SteerLive(Vector3 from_v, Vector3 to_v, Vector3 from_vel)
+    {
+        Debug.Log("Steeeer");
+        float dt = Time.fixedDeltaTime;
+        float max_spd = m_Drone.max_speed;
+        float max_acc = m_Drone.max_acceleration;
+        Vector3 target_vel = (to_v - from_v) / dt;
+        Vector3 true_vel;
+        if (target_vel.magnitude > max_spd)
+        {
+            target_vel = target_vel.normalized * max_spd;
+        }
+        Vector3 target_acc = (target_vel - from_vel) / dt;
+        Vector3 true_acc = Vector3.zero;
+        if (target_acc.magnitude > max_acc)
+        {
+            //target acceleration becomes actual acceleration
+            true_acc = target_acc.normalized * max_acc;
+        }
+        else
+        {
+            true_acc = target_acc;
+        }
+        true_vel = from_vel + dt * true_acc;
+        if (true_vel.magnitude > max_spd)
+        {
+            true_vel = true_vel.normalized * max_spd;
+        }
+        Vector3 reached_pos = from_v + dt * true_vel;
+        Vector3 input = true_acc/max_acc; //matching true acc for weird multplication by max_acc in DroneController
+
+        List<Vector3> Dynamics = new List<Vector3> { reached_pos, true_vel, input };
+        return Dynamics;       // Return all data for the reached node
+    }
+
     private bool CheckCollision(PathTree<Vector3> source, Vector3 target_pos)
     {
         if (DEBUG_COLLISION)
@@ -153,7 +188,7 @@ public class DroneAI : MonoBehaviour
             Debug.Log("c is already there, trying again (c is as follows): " + c_pos.ToString());
             return null;
         }
-        Debug.Log("we made it to the new: " + c_pos.ToString());
+        //Debug.Log("we made it to the new: " + c_pos.ToString());
 
         // - If no collisions occur in getting from b to c:
         if (CheckCollision(b, c_pos) is false)
@@ -247,7 +282,7 @@ public class DroneAI : MonoBehaviour
                 if (traversability[i_rnd, j_rnd] == 0.0f && PathTree<Vector3>.GetNode(rnd_pos) is null)        // Non-obstacle and not already in tree.
                 {
                     a_pos = rnd_pos;
-                        Debug.Log("our suitable goal is: " + a_pos.ToString());
+                        //Debug.Log("our suitable goal is: " + a_pos.ToString());
                         break;
                 }
             }
@@ -297,17 +332,35 @@ public class DroneAI : MonoBehaviour
         Debug.Log("size of path: " + optimal_path.Count().ToString());
 
         PathTree<Vector3> rut = optimal_path.ElementAt(0);
+        PathTree<Vector3> goal = optimal_path.ElementAt(optimal_path.Count() - 1);
         Debug.Log("root?: " + rut.GetPosition().ToString());
+        Debug.Log("goal?:" + goal.GetPosition().ToString());
         
         PathTree<Vector3>  current = optimal_path.ElementAt(update_count);
         if(update_count < (optimal_path.Count() - 1))
         {
+            PathTree<Vector3> nasta = optimal_path.ElementAt(update_count + 1);
+            Debug.Log("current" + current.GetPosition().ToString());
+            Debug.Log("ctrl insss: " + current.GetInput().ToString());
+            Debug.Log("vel should be: " + current.GetVelocity().ToString());
+            Debug.Log("but is " + m_Drone.velocity);
+            List<Vector3> real_answers = SteerLive(current.GetPosition(), nasta.GetPosition(), m_Drone.velocity);
+            //Vector3 ctrl_input = current.GetInput();
+            Vector3 ctrl_input = real_answers[2];
+            m_Drone.Move(ctrl_input.x, ctrl_input.z);
             update_count += 1;
         }
-        Debug.Log("current" + current.GetPosition().ToString());
-        Debug.Log("ctrl insss: " + current.GetInput().ToString());
-        Vector3 ctrl_input = current.GetInput();
-        m_Drone.Move(ctrl_input.x, ctrl_input.z);
+        else
+        {
+
+            Debug.Log("APPARENTLY DONE");
+            List<Vector3> real_answers = SteerLive(goal.GetPosition(), goal.GetPosition(), m_Drone.velocity);
+            //Vector3 ctrl_input = current.GetInput();
+            Vector3 ctrl_input = real_answers[2];
+            m_Drone.Move(ctrl_input.x, ctrl_input.z);
+            
+        }
+        
 
     }
 
