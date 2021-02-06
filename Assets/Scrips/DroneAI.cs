@@ -1,12 +1,16 @@
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
+using System.Linq;
 
 [RequireComponent(typeof(DroneController))]
 public class DroneAI : MonoBehaviour
 {
     bool DEBUG_RRT_LIVE = false;
     bool DEBUG_COLLISION = false;
+    int update_count = 0;
+    LinkedList<PathTree<Vector3>> optimal_path;
+
 
     private DroneController m_Drone; // the car controller we want to use
  
@@ -54,10 +58,10 @@ public class DroneAI : MonoBehaviour
         Debug.Log("true vel! " + true_vel.ToString());
         Debug.Log("true reached pos! " + reached_pos.ToString());
 
-        Vector3 input = true_acc / max_acc; //matching true acc for weird multplication by max_acc in DroneController
+        Vector3 input = true_acc; //matching true acc for weird multplication by max_acc in DroneController
 
         List<Vector3> Dynamics = new List<Vector3> { reached_pos, true_vel, input };
-        return Dynamics;       // Temporarily just return a.
+        return Dynamics;       // Return all data for the reached node
     }
 
     private bool CheckCollision(PathTree<Vector3> source, Vector3 target_pos)
@@ -251,23 +255,25 @@ public class DroneAI : MonoBehaviour
             RRTStarExpand(a_pos);
 
         }
-        /*
+        
         PathTree<Vector3> goal = RRTStarExpand(goal_pos);
 
         if (goal is null)
         {
             Debug.Log("ERROR: Goal was not added to the tree. Try searching for more nodes in RRT*.");
         }
+
+        optimal_path = GetPath(goal);
         // ----------- Draw RRT* Path -----------
-        */
+        
         if (DEBUG_RRT_LIVE)
         {
             StartCoroutine(DrawRRTLive(root));                  // Draw the RRT* path LIVE.
         }
         else
         {
-            DrawRRT();                                          // Draw the whole RRT* path immediately.
-            //DrawPath(goal);
+            //DrawRRT();                                          // Draw the whole RRT* path immediately.
+            DrawPath(goal);
         }
 
     }
@@ -284,11 +290,24 @@ public class DroneAI : MonoBehaviour
         float grid_center_x = terrain_manager.myInfo.get_x_pos(i);
         float grid_center_z = terrain_manager.myInfo.get_z_pos(j);
 
-        Debug.DrawLine(transform.position, new Vector3(grid_center_x, 0f, grid_center_z), Color.white, 1f);
+        //Debug.DrawLine(transform.position, new Vector3(grid_center_x, 0f, grid_center_z), Color.white, 1f);
 
         //Debug.Log("di delta: " + Time.fixedDeltaTime.ToString());
         // this is how you control the car
-        m_Drone.Move(0.4f * Mathf.Sin(Time.time * 1.9f), 0.1f);
+        Debug.Log("size of path: " + optimal_path.Count().ToString());
+
+        PathTree<Vector3> rut = optimal_path.ElementAt(0);
+        Debug.Log("root?: " + rut.GetPosition().ToString());
+        
+        PathTree<Vector3>  current = optimal_path.ElementAt(update_count);
+        if(update_count < (optimal_path.Count() - 1))
+        {
+            update_count += 1;
+        }
+        Debug.Log("current" + current.GetPosition().ToString());
+        Debug.Log("ctrl insss: " + current.GetInput().ToString());
+        Vector3 ctrl_input = current.GetInput();
+        m_Drone.Move(ctrl_input.x, ctrl_input.z);
 
     }
 
