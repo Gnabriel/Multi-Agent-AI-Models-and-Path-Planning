@@ -144,6 +144,13 @@ public class DroneAI : MonoBehaviour
         Vector3 c_vel = c_dynamics[1];
         Vector3 c_acc = c_dynamics[2];
 
+        if (PathTree<Vector3>.GetNode(c_pos) != null)
+        {
+            Debug.Log("c is already there, trying again (c is as follows): " + c_pos.ToString());
+            return null;
+        }
+        Debug.Log("we made it to the new: " + c_pos.ToString());
+
         // - If no collisions occur in getting from b to c:
         if (CheckCollision(b, c_pos) is false)
         {
@@ -244,7 +251,7 @@ public class DroneAI : MonoBehaviour
             RRTStarExpand(a_pos);
 
         }
-
+        /*
         PathTree<Vector3> goal = RRTStarExpand(goal_pos);
 
         if (goal is null)
@@ -252,15 +259,15 @@ public class DroneAI : MonoBehaviour
             Debug.Log("ERROR: Goal was not added to the tree. Try searching for more nodes in RRT*.");
         }
         // ----------- Draw RRT* Path -----------
-
+        */
         if (DEBUG_RRT_LIVE)
         {
             StartCoroutine(DrawRRTLive(root));                  // Draw the RRT* path LIVE.
         }
         else
         {
-            //DrawRRT();                                          // Draw the whole RRT* path immediately.
-            DrawPath(goal);
+            DrawRRT();                                          // Draw the whole RRT* path immediately.
+            //DrawPath(goal);
         }
 
     }
