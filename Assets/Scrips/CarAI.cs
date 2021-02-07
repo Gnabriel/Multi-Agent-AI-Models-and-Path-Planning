@@ -234,23 +234,12 @@ namespace UnityStandardAssets.Vehicles.Car
             // ----------- /Draw RRT* Path -----------
 
 
-
             //for (int i = 0; i < 3; i++)
             //{
             //    Vector3 waypoint = start_pos;
             //    my_path.Add(waypoint);
             //}
             //my_path.Add(goal_pos);
-
-
-            // Plot your path to see if it makes sense
-            // Note that path can only be seen in "Scene" window, not "Game" window
-            //Vector3 old_wp = start_pos;
-            //    foreach (var wp in my_path)
-            //    {
-            //        Debug.DrawLine(old_wp, wp, Color.red, 100f);
-            //        old_wp = wp;
-            //    }
         }
 
 
@@ -442,5 +431,11 @@ namespace UnityStandardAssets.Vehicles.Car
             }
             return null;
         }
+    }
+
+
+    class PathTreeDynamicModel<T> : PathTree
+    {
+
     }
 }
