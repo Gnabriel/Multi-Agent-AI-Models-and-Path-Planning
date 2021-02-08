@@ -181,7 +181,7 @@ namespace UnityStandardAssets.Vehicles.Car
             // ----------- RRT* -----------
 
             //int iterations = 5000;
-            int tree_size = 5000;
+            int tree_size = 10000;
             PathTree<Vector3> root = new PathTree<Vector3>(start_pos);
 
             //for (int i = 0; i < iterations; i++)
@@ -434,8 +434,106 @@ namespace UnityStandardAssets.Vehicles.Car
     }
 
 
-    class PathTreeDynamicModel<T> : PathTree
+    class DynamicBicycleModel
     {
+        // A class that represents the state of a vehicle according to the Dynamic Bicycle Model.
+        private Vector3 position;                               // Position of center of gravity.
+        private float omega;                                    // The orientation of the vehicle (in radians).
+        private float v_x;                                      // Forward speed.
+        private float v_y;                                      // Lateral speed.
+        private float r;                                        // Yaw (turn) rate.
 
+        private static float dt = Time.fixedDeltaTime;
+        // TODO: Change placeholder values below.
+        private static float L = 2.0f;                          // Vehicle length in [m].
+        private static float L_f = L / 2;                       // Vehicle front length in [m] (from center of gravity).
+        private static float L_r = L / 2;                       // Vehicle rear length in [m] (from center of gravity).
+        private static float m = 2000f;                         // Vehicle weight in [kg].
+
+
+        public DynamicBicycleModel(Vector3 position, float orientation, float x_velocity, float y_velocity, float yaw_rate)
+        {
+            this.position = position;
+            this.omega = orientation;
+            this.v_x = x_velocity;
+            this.v_y = y_velocity;
+            this.r = yaw_rate;
+        }
+
+        public void UpdateState(float max_steering,  float acceleration, float steering)
+        {
+            // Make sure we do not steer more than the max steering angle at neither left or right.
+            if (steering > max_steering)
+            {
+                steering = max_steering;
+            }
+            else if (steering < -max_steering)
+            {
+                steering = -max_steering;
+            }
+
+            float delta_f = steering;       // TODO: Is this correct?
+
+            // TODO: Initialize these.
+            float C_alphaf = 0.0f;
+            float C_alphar = 0.0f;
+
+            // "A vehicle with a low polar moment of inertia gives a quick response to steering commands."
+            // "A vehicle with a high polar moment has high directional stability (meaning it resists changing its direction)."
+            float I_z = 0.0f;                 // Should we decide this with trial and error?
+
+            float alpha_f = (this.v_y + L_f * this.r) / this.v_x + delta_f;
+            float alpha_r = (this.v_y - L_r * this.r) / this.v_x;
+
+            float F_yf = -C_alphaf * alpha_f;
+            float F_yr = -C_alphar * alpha_r;
+
+
+
+
+            // Current position.
+            float x_pos = this.position[0];
+            float y_pos = this.position[2];
+
+            // New position.
+            float x_pos_new = x_pos + (this.v_x * Math.Cos(this.r) * dt) - (this.v_y * Math.Sin(this.r) * dt);
+            float y_pos_new = y_pos + (this.v_x * Math.Sin(this.r) * dt) + (this.v_y * Math.Cos(this.r) * dt);
+
+            // New orientation.
+            float omega_new = this.r;
+
+            // New y-velocity.
+            float v_y_new = (F_yf / m) * Math.Cos(delta_f) + (F_yr / m) - this.v_x * this.r;
+
+            // New turn rate.
+            float r_new = (L_f / I_z) * F_yf * Math.Cos(delta_f) - (L_r / I_z) * F_yr;
+
+            //float r_new = DynamicBicycleModel.NormalizeAngle(this.r + this.omega * dt);           // From: github.com/Derekabc.
+
+            // Update state.
+            this.position = new Vector3(x_pos_new, 0.0f, y_pos_new);
+            this.omega = omega_new;
+            this.v_x = null;                                                                        // ?? what should this be??
+            this.v_y = v_y_new;
+            this.r = r_new;
+
+
+        }
+
+        public static float NormalizeAngle(float angle)
+        {
+            // Takes an angle and normalizes it to [-pi, pi].
+            double pi = Math.PI;
+            while (angle > pi)
+            {
+                angle -= 2 * pi;
+            }
+            while (angle < -pi)
+            {
+                angle += 2 * pi;
+            }
+            float normalized_angle = angle;
+            return normalized_angle;
+        }
     }
 }
