@@ -9,8 +9,9 @@ public class DroneAI : MonoBehaviour
     bool DEBUG_RRT_LIVE = false;
     bool DEBUG_COLLISION = false;
     int update_count = 0;
+    int overshooter = 0;
     LinkedList<PathTree<Vector3>> optimal_path;
-
+    Vector3 current_updatee;
 
     private DroneController m_Drone; // the car controller we want to use
 
@@ -107,27 +108,43 @@ public class DroneAI : MonoBehaviour
         }
 
         float step = 1f;        // TODO: Experiment with the step size.
-        int current_i;
-        int current_j;
+        //int current_i;
+        //int current_j;
         Vector3 current_pos = source.GetPosition();
         //Debug.Log("---------");
         //Debug.Log("Source position: " + current_pos.ToString());
         //Debug.Log("Target position: " + target_pos.ToString());
-
+        float l = 0f;
         while (current_pos != target_pos)
         {
             current_pos = Vector3.MoveTowards(current_pos, target_pos, step);
-            current_i = terrain_manager.myInfo.get_i_index(current_pos[0]);
-            current_j = terrain_manager.myInfo.get_j_index(current_pos[2]);
 
-            //Debug.Log("Current position: " + current_pos.ToString());
-            //Debug.Log("Current i = " + current_i.ToString() + ", j = " + current_j.ToString());
-
+            ///*
+            int current_i = terrain_manager.myInfo.get_i_index(current_pos[0]);
+            int current_j = terrain_manager.myInfo.get_j_index(current_pos[2]);
             if (terrain_manager.myInfo.traversability[current_i, current_j] == 1)       // Collision.
             {
                 //Debug.Log("Collision found: " + current_pos.ToString() + " at i = " + current_i.ToString() + ", j = " + current_j.ToString());
                 return true;
             }
+            // */
+            /*
+            //Debug.Log("Current position: " + current_pos.ToString());
+            //Debug.Log("Current i = " + current_i.ToString() + ", j = " + current_j.ToString());
+            List<int> current_i = new List<int> { terrain_manager.myInfo.get_i_index(current_pos[0] + l), terrain_manager.myInfo.get_i_index(current_pos[0] - l) };
+            List<int> current_j = new List<int> { terrain_manager.myInfo.get_j_index(current_pos[2] + l), terrain_manager.myInfo.get_j_index(current_pos[2] - l) };
+            foreach (int i_candidate in current_i)
+            {
+                foreach(int j_candidate in current_j)
+                {
+                    if (terrain_manager.myInfo.traversability[i_candidate, j_candidate] == 1)       // Collision.
+                    {
+                        //Debug.Log("Collision found: " + current_pos.ToString() + " at i = " + current_i.ToString() + ", j = " + current_j.ToString());
+                        return true;
+                    }
+                }
+            }
+            */
         }
         //Debug.Log("No collision found. This path is clear.");
         //Debug.Log("---------");
@@ -140,27 +157,7 @@ public class DroneAI : MonoBehaviour
         return Vector3.Distance(source_pos, target_pos);
     }
 
-    private List<PathTree<Vector3>> GetNeighbors(PathTree<Vector3> source)
-    {
-        float search_radius = 20f;                                              // TODO: Experiment with this value.
-        float dist;
-        List<PathTree<Vector3>> neighbors = new List<PathTree<Vector3>>();
-        foreach (KeyValuePair<Vector3, PathTree<Vector3>> kvp in PathTree<Vector3>.node_dict)
-        {
-            dist = GetDistance(kvp.Key, source.GetPosition());
-            if (dist <= search_radius)
-            {
-                neighbors.Add(kvp.Value);
-            }
-        }
-        if (neighbors.Count == 0)
-        {
-            return null;
-        }
-        return neighbors;
-    }
-
-    private PathTree<Vector3> RRTStarExpand(Vector3 a_pos)
+    private PathTree<Vector3> RRTStarExpand(Vector3 a_pos, bool relax = false)
     {
         // - Find b, the node of the tree closest to a.
         PathTree<Vector3> b = null;
@@ -197,41 +194,16 @@ public class DroneAI : MonoBehaviour
             float b_to_c_cost = GetDistance(b.GetPosition(), c_pos);
             PathTree<Vector3> c = b.AddChild(c_pos, c_vel, c_acc, b_to_c_cost);
 
-            //      - Find set of Neighbors N of c.
-            //List<PathTree<Vector3>> c_neighbors = GetNeighbors(c);
-
-            //      - Choose Best parent.
-            /*
-            PathTree<Vector3> best_parent = b;
-            float c_cost_min = c.GetCost();
-
-            foreach (PathTree<Vector3> c_neighbor in c_neighbors)
-            {
-                float neighbor_to_c_cost = GetDistance(c_neighbor.GetPosition(), c.GetPosition());
-                float c_cost_new = c_neighbor.GetCost() + neighbor_to_c_cost;
-                if (CheckCollision(c_neighbor, c.GetPosition()) is false && c_cost_new < c_cost_min)
-                {
-                    best_parent = c_neighbor;
-                    c_cost_min = c_cost_new;
-                }
-            }
-            best_parent.AdoptChild(c, c_cost_min);
-            */
-            /*
-            //      - Try to adopt Neighbors (if good).
-            foreach (PathTree<Vector3> c_neighbor in c_neighbors)
-            {
-                float c_to_neighbor_cost = GetDistance(c.GetPosition(), c_neighbor.GetPosition());
-                float neighbor_cost_new = c.GetCost() + c_to_neighbor_cost;
-                if (CheckCollision(c, c_neighbor.GetPosition()) is false && neighbor_cost_new < c_neighbor.GetCost())
-                {
-                    c.AdoptChild(c_neighbor, neighbor_cost_new);
-                }
-            }
-            */
             return c;
         }
-        return null;
+        if (relax)
+        {
+            return b;
+        }
+        else
+        {
+            return null;
+        }
     }
 
     private void Start()
@@ -258,13 +230,11 @@ public class DroneAI : MonoBehaviour
         var traversability = terrain_manager.myInfo.traversability;
 
         // ----------- RRT* -----------
-
-        int iterations = 5000;
+        int tree_size = 15000;
         PathTree<Vector3> root = new PathTree<Vector3>(start_pos, Vector3.zero, Vector3.zero);//start with zero velocity and no input
 
-
-
-        for (int i = 0; i < iterations; i++)
+        //for (int i = 0; i < iterations; i++)
+        while (PathTree<Vector3>.node_dict.Count < tree_size)
         {
             // - Pick a random point a in X.
 
@@ -292,11 +262,33 @@ public class DroneAI : MonoBehaviour
         }
 
         PathTree<Vector3> goal = RRTStarExpand(goal_pos);
+        for (int i = 0; i < 1000; i++)
+        {
+            if (goal is null || (Vector3.Distance(goal.GetPosition(), goal_pos) > 1f))
+            {
+                goal = RRTStarExpand(goal_pos);
+            }
+            else
+            {
+                Debug.Log("succesful goal addition, break!");
+                break;
+            }
 
+        }
+        while (goal is null)
+        {
+            Debug.Log("trying to get valid goal.");
+            goal = RRTStarExpand(goal_pos, true);
+        }
         if (goal is null)
         {
-            Debug.Log("ERROR: Goal was not added to the tree. Try searching for more nodes in RRT*.");
+            Debug.Log("not worked!!");
         }
+        else
+        {
+            Debug.Log("worked!!");
+        }
+
 
         optimal_path = GetPath(goal);
         // ----------- Draw RRT* Path -----------
@@ -307,7 +299,7 @@ public class DroneAI : MonoBehaviour
         }
         else
         {
-            //DrawRRT();                                          // Draw the whole RRT* path immediately.
+            DrawRRT();                                          // Draw the whole RRT* path immediately.
             DrawPath(goal);
         }
 
@@ -324,41 +316,51 @@ public class DroneAI : MonoBehaviour
         int j = terrain_manager.myInfo.get_j_index(transform.position.z);
         float grid_center_x = terrain_manager.myInfo.get_x_pos(i);
         float grid_center_z = terrain_manager.myInfo.get_z_pos(j);
+        Vector3 start_pos = terrain_manager.myInfo.start_pos;
+        Vector3 goal_pos = terrain_manager.myInfo.goal_pos;
 
         //Debug.DrawLine(transform.position, new Vector3(grid_center_x, 0f, grid_center_z), Color.white, 1f);
 
         //Debug.Log("di delta: " + Time.fixedDeltaTime.ToString());
         // this is how you control the car
-        Debug.Log("size of path: " + optimal_path.Count().ToString());
+        Debug.Log("size of path: " + optimal_path.Count.ToString());
 
         PathTree<Vector3> rut = optimal_path.ElementAt(0);
-        PathTree<Vector3> goal = optimal_path.ElementAt(optimal_path.Count() - 1);
+        PathTree<Vector3> goal = optimal_path.ElementAt(optimal_path.Count - 1);
         Debug.Log("root?: " + rut.GetPosition().ToString());
         Debug.Log("goal?:" + goal.GetPosition().ToString());
+        Debug.Log("true root:" + start_pos.ToString());
+        Debug.Log("true goal:" + goal_pos.ToString());
 
+        if (update_count == 0)
+        {
+            current_updatee = rut.GetPosition();
+        }
         PathTree<Vector3> current = optimal_path.ElementAt(update_count);
-        if (update_count < (optimal_path.Count() - 1))
+        if (update_count < (optimal_path.Count - 1))
         {
             PathTree<Vector3> nasta = optimal_path.ElementAt(update_count + 1);
-            Debug.Log("current" + current.GetPosition().ToString());
-            Debug.Log("ctrl insss: " + current.GetInput().ToString());
-            Debug.Log("vel should be: " + current.GetVelocity().ToString());
-            Debug.Log("but is " + m_Drone.velocity);
+            Debug.Log("true current" + current_updatee.ToString());
+            //Debug.Log("ctrl insss: " + current_updatee.GetInput().ToString());
+            //Debug.Log("vel should be: " + current_updatee.GetVelocity().ToString());
+            //Debug.Log("but is " + m_Drone.velocity);
             List<Vector3> real_answers = SteerLive(current.GetPosition(), nasta.GetPosition(), m_Drone.velocity);
             //Vector3 ctrl_input = current.GetInput();
             Vector3 ctrl_input = real_answers[2];
             m_Drone.Move(ctrl_input.x, ctrl_input.z);
+            current_updatee = current_updatee + m_Drone.velocity * Time.fixedDeltaTime;
             update_count += 1;
         }
         else
         {
 
             Debug.Log("APPARENTLY DONE");
-            List<Vector3> real_answers = SteerLive(goal.GetPosition(), goal.GetPosition(), m_Drone.velocity);
+            List<Vector3> real_answers = SteerLive(current_updatee, goal.GetPosition(), m_Drone.velocity);
             //Vector3 ctrl_input = current.GetInput();
             Vector3 ctrl_input = real_answers[2];
             m_Drone.Move(ctrl_input.x, ctrl_input.z);
-
+            current_updatee = current_updatee + m_Drone.velocity * Time.fixedDeltaTime;
+            overshooter++;
         }
 
 
