@@ -11,17 +11,17 @@ public class DroneAI : MonoBehaviour
     int update_count = 0;
     int overshooter = 0;
 
-    float collision_k = 2.5f;//size of the "barrier" for the collision detection (higher values are safer but make it harder to find a path)
+    float collision_k = 3.5f;//size of the "barrier" for the collision detection (higher values are safer but make it harder to find a path)
     float steer_k = 8f;//max distance units for RRT (seems like higher values result in smoother paths)
     float plan_steer_k = 20f;//max distance units for dynamic constraints (if higher than steer_k has no effect; determines detail of final followed path-which is sometimes easier and sometimes harder to actually drive-)
     float optimal_k = 1f;//allowed distance error wrt to RRT for dynamically feasible path (lower values seem to result in more controlled movements)
     float limitation = 0.4f;//fraction of max_spd or acc allowed (right now it only affects speed)
     float goal_thresh = 0.5f;//how many units away from the goal can be considered a success
-    int max_iters = 15000;//max iterations or nodes for RRT/RRT*
+    int max_iters = 20000;//max iterations or nodes for RRT/RRT*
 
     //PARAMS OF BEST RESULTS SO FAR: 
     //A: goal_thresh = 1; limitation = 0.4; collision = 2.5; steer = 8; plan_steer = 20; optimal k = 1; max iters = 10K. Time ~ 90s
-    //B: goal_thresh = 1; limitation = 0.4; collision = 2.5; steer = 8; plan_steer = 20; optimal k = 1; max iters = 10K<--- NO RESULTS YET
+    //B: goal_thresh = 1; limitation = 0.4; collision = 3.5; steer = 8; plan_steer = 20; optimal k = 1; max iters = 20K. Time ~ 148s
     //C: goal_thresh = 0.5; limitation = 1; collision = 2.5; steer = 8; plan_steer = 20; optimal k = 1; max iters = 10K. Time ~ 16s
 
     Vector3 total_error = Vector3.zero;
