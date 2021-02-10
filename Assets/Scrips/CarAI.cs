@@ -12,16 +12,40 @@ namespace UnityStandardAssets.Vehicles.Car
     public class CarAI : MonoBehaviour
     {
         bool DEBUG_RRT_LIVE = false;
+        //int update_count = 0;
+        //int overshooter = 0;
 
-        private CarController m_Car; // the car controller we want to use
+        int max_iters = 5000;           // Max iterations or nodes for RRT/RRT*.
+        float collision_k = 2.5f;       // Size of the "barrier" for the collision detection (higher values are safer but make it harder to find a path).
+        float steer_k = 8f;             // Max distance units for RRT (seems like higher values result in smoother paths).
+        //float plan_steer_k = 20f;       // Max distance units for dynamic constraints (if higher than steer_k has no effect; determines detail of final followed path-which is sometimes easier and sometimes harder to actually drive-).
+        //float optimal_k = 1f;           // Allowed distance error wrt to RRT for dynamically feasible path (lower values seem to result in more controlled movements).
+        //float limitation = 0.4f;        // Fraction of max_spd or acc allowed (right now it only affects speed).
+        //float goal_thresh = 0.5f;       // How many units away from the goal can be considered a success.
+        
+
+        List<Vector3> next_up = new List<Vector3>();
+        LinkedList<List<Vector3>> optimal_path = new LinkedList<List<Vector3>>();
+        LinkedList<PathTree<Vector3>> suboptimal_path;
+
+
+        private CarController m_Car;    // The car controller we want to use.
 
         public GameObject terrain_manager_game_object;
         TerrainManager terrain_manager;
 
-        private Vector3 Steer(PathTree<Vector3> source, Vector3 target_pos)
+        private List<Vector3> Steer(PathTree<Vector3> source, Vector3 target_pos)
         {
             // The Reeds-Shepp/Dubins curves are calculated in the steer function.
-            return target_pos;       // Temporarily just return a.
+            Vector3 current_pos = source.GetPosition();
+            Vector3 reached_pos = Vector3.zero;
+            Vector3 current_vel = source.GetVelocity();
+            if (GetDistance(current_pos, target_pos) > steer_k)
+            {
+                target_pos = Vector3.MoveTowards(current_pos, target_pos, steer_k);
+            }
+            List<Vector3> Dummy = new List<Vector3> { target_pos, current_vel, Vector3.zero };
+            return Dummy;
         }
 
         private bool GenerateDubinsPath()
@@ -34,6 +58,36 @@ namespace UnityStandardAssets.Vehicles.Car
 
         private bool CheckCollision(PathTree<Vector3> source, Vector3 target_pos)
         {
+            Vector3 current_pos = source.GetPosition();
+            Vector3 collision_pos;
+            float step = 0.05f * GetDistance(current_pos, target_pos);
+            int current_i;
+            int current_j;
+            float length = collision_k;
+            List<Vector3> tilings = new List<Vector3> { Vector3.zero, new Vector3(length, 0, 0), new Vector3(-length, 0, 0), new Vector3(0, 0, length), new Vector3(0, 0, -length),
+                new Vector3(length, 0, length), new Vector3(-length, 0, -length), new Vector3(-length, 0, length), new Vector3(length, 0, -length)};
+
+            while (current_pos != target_pos)
+            {
+                current_pos = Vector3.MoveTowards(current_pos, target_pos, step);
+                foreach (Vector3 tile in tilings)
+                {
+                    collision_pos = current_pos + tile;
+                    current_i = terrain_manager.myInfo.get_i_index(collision_pos[0]);
+                    current_j = terrain_manager.myInfo.get_j_index(collision_pos[2]);
+                    if (terrain_manager.myInfo.traversability[current_i, current_j] == 1)       // Collision.
+                    {
+                        //Debug.Log("Collision found: " + collision_pos.ToString() + " at i = " + current_i.ToString() + ", j = " + current_j.ToString());
+                        return true;
+                    }
+                }
+            }
+            return false;                                                                       // No collision.
+        }
+
+        private bool __Obsolete__CheckCollision(PathTree<Vector3> source, Vector3 target_pos)
+        {
+            // Old CheckCollision() without marginalization.
             float step = 1f;        // TODO: Experiment with the step size.
             int current_i;
             int current_j;
@@ -49,94 +103,6 @@ namespace UnityStandardAssets.Vehicles.Car
                 }
             }
             return false;                                                                   // No collision.
-        }
-
-        private void MarginObstacles(float margin)
-        {
-            float[,] traversability = terrain_manager.myInfo.traversability;
-            int x_N = terrain_manager.myInfo.x_N;
-            int z_N = terrain_manager.myInfo.z_N;
-            float x_low = terrain_manager.myInfo.x_low;
-            float x_high = terrain_manager.myInfo.x_high;
-            float z_low = terrain_manager.myInfo.z_low;
-            float z_high = terrain_manager.myInfo.z_high;
-            float x_step = (x_high - x_low) / x_N;
-            float z_step = (z_high - z_low) / z_N;
-
-            float obstacle_width = (x_high - x_low) / x_N;
-            float obstacle_height = (z_high - z_low) / z_N;
-
-            float x_step_new = x_step;
-            float z_step_new = z_step;
-            while (margin > x_step_new || margin > z_step_new)          // Increase resolution of new grid until one cell size is less than or equal to the margin.
-            {
-                x_step_new = x_step_new / 2;
-                z_step_new = z_step_new / 2;
-            }
-
-            int x_N_new = (int)Math.Ceiling((x_high - x_low) / x_step_new);
-            int z_N_new = (int)Math.Ceiling((z_high - z_low) / z_step_new);
-            float[,] traversability_new = new float[x_N_new, z_N_new];
-            float margined_obstacle_width = obstacle_width + margin;
-            float margined_obstacle_heigh = obstacle_height + margin;
-
-            for (int i = 0; i < x_N; i++)
-            {
-                for (int j = 0; j < z_N; j++)
-                {
-                    if (traversability[i, j] == 1)          // Obstacle in original matrix.
-                    {
-                        float obstacle_center_x = terrain_manager.myInfo.get_x_pos(i);
-                        float obstacle_center_z = terrain_manager.myInfo.get_z_pos(j);
-
-                        float margined_obstacle_corner_1_x = obstacle_center_x + margined_obstacle_width;
-                        float margined_obstacle_corner_1_z = obstacle_center_z + margined_obstacle_heigh;
-
-                        float margined_obstacle_corner_2_x = obstacle_center_x + margined_obstacle_width;
-                        float margined_obstacle_corner_2_z = obstacle_center_z - margined_obstacle_heigh;
-
-                        float margined_obstacle_corner_3_x = obstacle_center_x - margined_obstacle_width;
-                        float margined_obstacle_corner_3_z = obstacle_center_z + margined_obstacle_heigh;
-
-                        float margined_obstacle_corner_4_x = obstacle_center_x - margined_obstacle_width;
-                        float margined_obstacle_corner_4_z = obstacle_center_z - margined_obstacle_heigh;
-
-                        float length = 0;
-                        for (int x = 0; x < length; x++)
-                        {
-
-                        }
-                        
-                        float x_apa = 0;
-                        float z_apa = 0;
-
-                        int i_apa = (int)Mathf.Floor(x_N * (x_apa - x_low) / (x_high - x_low));
-                        int j_apa = (int)Mathf.Floor(z_N * (z_apa - z_low) / (z_high - z_low));
-
-                    }
-                }
-            }
-        }
-        
-
-        private void BuildObstacleBounds(float obstacle_size)
-        {
-            List<Bounds> obstacle_bounds = new List<Bounds>();
-            for (int i = 0; i < terrain_manager.myInfo.traversability.GetLength(0); i++)
-            {
-                for (int j = 0; j < terrain_manager.myInfo.traversability.GetLength(1); j++)
-                {
-                    if (terrain_manager.myInfo.traversability[i, j] == 1)                   // Collision.
-                    {
-                        float x_pos = terrain_manager.myInfo.get_x_pos(i);
-                        float z_pos = terrain_manager.myInfo.get_z_pos(j);
-                        Vector3 obstacle_center = new Vector3(x_pos, 0.0f, z_pos);
-                        //Bounds obstacle = new Bounds(obstacle_center, obstacle_size);
-                        //obstacle_bounds.Add(obstacle);
-                    }
-                }
-            }
-            //return obstacle_bounds;
         }
 
         private float GetDistance(Vector3 source_pos, Vector3 target_pos)
@@ -182,14 +148,17 @@ namespace UnityStandardAssets.Vehicles.Car
 
             // - Find control inputs u to steer the robot from b to a.
             // - Apply control inputs u for time t, so robot reaches c.
-            Vector3 c_pos = Steer(b, a_pos);
+            List<Vector3> c_dynamics = Steer(b, a_pos);
+            Vector3 c_pos = c_dynamics[0];
+            Vector3 c_vel = c_dynamics[1];
+            Vector3 c_acc = c_dynamics[2];
 
             // - If no collisions occur in getting from b to c:
             if (CheckCollision(b, c_pos) is false)
             {
                 //      - Add c as child.
                 float b_to_c_cost = GetDistance(b.GetPosition(), c_pos);
-                PathTree<Vector3> c = b.AddChild(c_pos, b_to_c_cost);
+                PathTree<Vector3> c = b.AddChild(c_pos, c_vel, c_acc, b_to_c_cost);
 
                 //      - Find set of Neighbors N of c.
                 List<PathTree<Vector3>> c_neighbors = GetNeighbors(c);
@@ -256,8 +225,9 @@ namespace UnityStandardAssets.Vehicles.Car
             // ----------- RRT* -----------
 
             //int iterations = 5000;
-            int tree_size = 10000;
-            PathTree<Vector3> root = new PathTree<Vector3>(start_pos);
+            int tree_size = max_iters;
+            float root_orientation = 0.0f;                                       // +++++++++++++++++++++++++++++++ TODO: Find a way to get the orientation of start position. +++++++++++++++++++++++++++++++
+            PathTree<Vector3> root = new PathTree<Vector3>(start_pos, 0.0f, root_orientation);      // Start with zero velocity.
 
             //for (int i = 0; i < iterations; i++)
             while (PathTree<Vector3>.node_dict.Count < tree_size)
@@ -288,52 +258,59 @@ namespace UnityStandardAssets.Vehicles.Car
 
             if (goal is null)
             {
-                throw new Exception("ERROR: Goal was not added to the tree. Try searching for more nodes in RRT*.");
+                //throw new Exception("ERROR: Goal was not added to the tree. Try searching for more nodes in RRT*.");
+                Debug.Log("ERROR: Goal was not added to the tree. Try searching for more nodes in RRT*.");
             }
-
             // ----------- /RRT* -----------
 
 
             // ----------- Draw RRT* Path -----------
-
             if (DEBUG_RRT_LIVE)
             {
-                StartCoroutine(DrawRRTLive(root, goal));                  // Draw the RRT* tree LIVE.
+                StartCoroutine(DrawRRTLive(root, goal));                    // Draw the RRT* tree LIVE.
             }
             else
             {
-                DrawRRT();                                          // Draw the whole RRT* tree immediately.
-                DrawPath(goal);                                     // Draw the shortest path to goal immediately.
+                DrawRRT();                                                  // Draw the whole RRT* tree immediately.
+                DrawPath(goal);                                             // Draw the shortest path to goal immediately.
             }
-
             // ----------- /Draw RRT* Path -----------
 
 
-            //for (int i = 0; i < 3; i++)
+            // ----------- Add dynamic constraints to path -----------
+            //suboptimal_path = GetPath(goal);
+            //PathTree<Vector3> current = suboptimal_path.ElementAt(0);
+            //PathTree<Vector3> next = suboptimal_path.ElementAt(1);
+            //List<Vector3> reached = new List<Vector3>();
+            //reached = SteerLive(current.GetPosition(), next.GetPosition(), current.GetVelocity());
+            //List<Vector3> opt_root = new List<Vector3> { current.GetPosition(), current.GetVelocity(), Vector3.zero };
+            //optimal_path.AddLast(opt_root);
+            //optimal_path.AddLast(reached);
+            //for (int k = 1; k < suboptimal_path.Count - 1; k++)
             //{
-            //    Vector3 waypoint = start_pos;
-            //    my_path.Add(waypoint);
+            //    next = suboptimal_path.ElementAt(k);
+            //    while (Vector3.Distance(reached[0], next.GetPosition()) > optimal_k)
+            //    {
+            //        reached = SteerLive(reached[0], next.GetPosition(), reached[1], true);
+            //        optimal_path.AddLast(reached);
+            //    }
             //}
-            //my_path.Add(goal_pos);
+            // ----------- /Add dynamic constraints to path -----------
+
+
+            // ----------- Draw obtained path -----------
+            //for (int k = 1; k < optimal_path.Count - 1; k++)
+            //{
+            //    Debug.DrawLine(optimal_path.ElementAt(k - 1)[0], optimal_path.ElementAt(k)[0], Color.green, 100f);
+            //}
+            // ----------- /Draw obtained path -----------
         }
 
 
         private void FixedUpdate()
         {
-            // Execute your path here
-            // ...
-
-            // this is how you access information about the terrain
-            //int i = terrain_manager.myInfo.get_i_index(transform.position.x);
-            //int j = terrain_manager.myInfo.get_j_index(transform.position.z);
-            //float grid_center_x = terrain_manager.myInfo.get_x_pos(i);
-            //float grid_center_z = terrain_manager.myInfo.get_z_pos(j);
-
-            //Debug.DrawLine(transform.position, new Vector3(grid_center_x, 0f, grid_center_z));
-
-
-            // this is how you control the car
-            m_Car.Move(1f, 1f, 1f, 0f);
+            // Execute your path here.
+            // This is how you control the car: m_Car.Move(1f, 1f, 1f, 0f);
 
         }
 
@@ -428,34 +405,37 @@ namespace UnityStandardAssets.Vehicles.Car
     class PathTree<T>
     {
         public static Dictionary<T, PathTree<T>> node_dict = new Dictionary<T, PathTree<T>>();
-        private T position;                                     // Position of this node.
+        private T model;                                        // Motion model of the vehicle.
+        private float velocity;
         private float cost;                                     // Total cost to reach this node.
         private LinkedList<PathTree<T>> children;               // List of this nodes' children.
         private PathTree<T> parent;                             // This nodes' parent.
 
-        public PathTree(T position)
+        public PathTree(T position, float velocity, float orientation)
         {
             // Constructor for root node.
-            this.position = position;
+            this.model = new KinematicCarModel(position, orientation);
+            this.velocity = velocity;
             this.cost = 0f;
             this.children = new LinkedList<PathTree<T>>();
             this.parent = null;
             node_dict.Add(this.position, this);
         }
 
-        public PathTree(T position, float cost)
+        public PathTree(T position, float velocity, float orientation, float cost)
         {
             // Constructor for non-root nodes.
-            this.position = position;
+            this.model = new KinematicCarModel(position, orientation);
+            this.velocity = velocity;
             this.cost = cost;
             this.children = new LinkedList<PathTree<T>>();
-            node_dict.Add(this.position, this);
+            node_dict.Add(this.model.GetPosition(), this);
         }
 
-        public PathTree<T> AddChild(T position, float sub_cost)
+        public PathTree<T> AddChild(T position, float velocity, float orientation, float sub_cost)
         {
             float child_cost = this.cost + sub_cost;
-            PathTree<T> new_child = new PathTree<T>(position, child_cost);
+            PathTree<T> new_child = new PathTree<T>(position, velocity, orientation, child_cost);
             this.children.AddLast(new_child);
             new_child.parent = this;
             return new_child;
@@ -477,12 +457,22 @@ namespace UnityStandardAssets.Vehicles.Car
 
         public T GetPosition()
         {
-            return this.position;
+            return this.model.GetPosition();
+        }
+
+        public float GetVelocity()
+        {
+            return this.velocity;
         }
 
         public float GetCost()
         {
             return this.cost;
+        }
+
+        public KinematicCarModel GetModel()
+        {
+            return this.model;
         }
 
         public PathTree<T> GetParent()
@@ -505,6 +495,75 @@ namespace UnityStandardAssets.Vehicles.Car
                 }
             }
             return null;
+        }
+    }
+
+
+    class KinematicCarModel
+    {
+        // A class that represents the state of a vehicle according to the Kinematic Car Model.
+        private Vector3 position;                                   // Position of center of gravity.
+        private float omega;                                        // The orientation of the vehicle (in radians).
+        
+        private static float length = 5.0f;                         // Vehicle length.  (from Group 3)
+        private static float width = 2.5f;                          // Vehicle width.   (from Group 3)
+        private static float v_max = float.PositiveInfinity;        // Maximum velocity.
+        private static float phi_max = float.PositiveInfinity;      // Maximum steering angle.
+
+        public KinematicCarModel(Vector3 position, float orientation)
+        {
+            this.position = position;
+            this.omega = orientation;
+        }
+
+        public void UpdateState(float v, float phi)
+        {
+            // v: Forward velocity.
+            // phi: Steering angle (in radians).
+
+            // Make sure we do not steer more than the max steering angle at neither left or right.
+            if (phi > phi_max)
+            {
+                phi = phi_max;
+            }
+            else if (phi < -phi_max)
+            {
+                phi = -phi_max;
+            }
+            // Limit velocity to max velocity.
+            v = Math.Max(v, v_max);
+
+            float x_pos = v * (float)Math.Cos(phi);
+            float z_pos = v * (float)Math.Sin(phi);
+            this.position = new Vector3(x_pos, 0.0f, z_pos);
+            this.omega = (v / length) * (float)Math.Tan(phi);
+        }
+
+        public Vector3 GetPosition()
+        {
+            return this.position;
+        }
+
+        public float GetOrientation()
+        {
+            return this.omega;
+        }
+
+        public static float NormalizeAngle(float angle)
+        {
+            // Takes an angle and normalizes it to [-pi, pi].
+            // Not sure if we will need this.
+            float pi = (float)Math.PI;
+            while (angle > pi)
+            {
+                angle -= 2 * pi;
+            }
+            while (angle < -pi)
+            {
+                angle += 2 * pi;
+            }
+            float normalized_angle = angle;
+            return normalized_angle;
         }
     }
 
