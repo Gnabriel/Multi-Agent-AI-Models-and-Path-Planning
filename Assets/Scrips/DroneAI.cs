@@ -7,7 +7,6 @@ using System.Linq;
 public class DroneAI : MonoBehaviour
 {
     bool DEBUG_RRT_LIVE = false;
-    bool DEBUG_COLLISION = false;
     int update_count = 0;
     int overshooter = 0;
 
@@ -19,22 +18,16 @@ public class DroneAI : MonoBehaviour
     float goal_thresh = 0.5f;//how many units away from the goal can be considered a success
     int max_iters = 20000;//max iterations or nodes for RRT/RRT*
 
+    List<Vector3> next_up = new List<Vector3>();
+    LinkedList<List<Vector3>> optimal_path = new LinkedList<List<Vector3>>();
+    LinkedList<PathTree<Vector3>> suboptimal_path;
+
     //PARAMS OF BEST RESULTS SO FAR: 
     //A: goal_thresh = 1; limitation = 0.4; collision = 2.5; steer = 8; plan_steer = 20; optimal k = 1; max iters = 10K. Time ~ 90s
     //B: goal_thresh = 1; limitation = 0.4; collision = 3.5; steer = 8; plan_steer = 20; optimal k = 1; max iters = 20K. Time ~ 148s
     //C: goal_thresh = 0.5; limitation = 1; collision = 2.5; steer = 8; plan_steer = 20; optimal k = 1; max iters = 10K. Time ~ 16s
 
-    Vector3 total_error = Vector3.zero;
-    Vector3 error = Vector3.zero;
-    Vector3 prev_error = Vector3.zero;
-    List<Vector3> nasta_up = new List<Vector3>();
-    LinkedList<List<Vector3>> optimal_path = new LinkedList<List<Vector3>>();
-    LinkedList<PathTree<Vector3>> suboptimal_path;
-    Vector3 current_updatee;
-    Vector3 current_spedee;
-    float D;
-    float P;
-    float I;
+
     private DroneController m_Drone; // the car controller we want to use
 
     public GameObject terrain_manager_game_object;
@@ -173,7 +166,6 @@ public class DroneAI : MonoBehaviour
         {
             return null;
         }
-        //Debug.Log("we made it to the new: " + c_pos.ToString());
 
         // - If no collisions occur in getting from b to c:
         if (CheckCollision(b, c_pos) is false)
@@ -323,18 +315,18 @@ public class DroneAI : MonoBehaviour
         // ----------- Add dynamic constraints to path -----------
         suboptimal_path = GetPath(goal);
         PathTree<Vector3> current = suboptimal_path.ElementAt(0);
-        PathTree<Vector3> nasta = suboptimal_path.ElementAt(1);
+        PathTree<Vector3> next = suboptimal_path.ElementAt(1);
         List<Vector3> reached = new List<Vector3>();
-        reached = SteerLive(current.GetPosition(), nasta.GetPosition(), current.GetVelocity());
+        reached = SteerLive(current.GetPosition(), next.GetPosition(), current.GetVelocity());
         List<Vector3> opt_root = new List<Vector3> { current.GetPosition(), current.GetVelocity(), Vector3.zero };
         optimal_path.AddLast(opt_root);
         optimal_path.AddLast(reached);
         for (int k = 1; k < suboptimal_path.Count - 1; k++)
         {
-            nasta = suboptimal_path.ElementAt(k);
-            while (Vector3.Distance(reached[0], nasta.GetPosition()) > optimal_k) //&& (Vector3.Distance(reached[0], goal.GetPosition()) > (Vector3.Distance(nasta.GetPosition(), goal.GetPosition()))))
+            next = suboptimal_path.ElementAt(k);
+            while (Vector3.Distance(reached[0], next.GetPosition()) > optimal_k) //&& (Vector3.Distance(reached[0], goal.GetPosition()) > (Vector3.Distance(nasta.GetPosition(), goal.GetPosition()))))
             {
-                reached = SteerLive(reached[0], nasta.GetPosition(), reached[1], true);
+                reached = SteerLive(reached[0], next.GetPosition(), reached[1], true);
                 optimal_path.AddLast(reached);
             }
         }
@@ -347,9 +339,6 @@ public class DroneAI : MonoBehaviour
             Debug.DrawLine(optimal_path.ElementAt(k - 1)[0], optimal_path.ElementAt(k)[0], Color.green, 100f);
         }
         // ----------- /Draw obtained path -----------
-
-
-
     }
 
 
@@ -362,16 +351,16 @@ public class DroneAI : MonoBehaviour
 
         if (update_count == 0)
         {
-            nasta_up = optimal_path.ElementAt(update_count + 1);
+            next_up = optimal_path.ElementAt(update_count + 1);
         }
-        if (Vector3.Distance(transform.position, nasta_up[0]) < 0.2f || update_count == 0 || true) //&& (Vector3.Distance(transform.position, goal[0]) > (Vector3.Distance(nasta_up[0], goal[0]))))
+        if (Vector3.Distance(transform.position, next_up[0]) < 0.2f || update_count == 0 || true) //&& (Vector3.Distance(transform.position, goal[0]) > (Vector3.Distance(nasta_up[0], goal[0]))))
         {
             update_count += 1;
         }
         if (update_count < (optimal_path.Count - 1))
         {
-            nasta_up = optimal_path.ElementAt(update_count + 1);
-            List<Vector3> real_answers = SteerLive(transform.position, nasta_up[0], m_Drone.velocity);
+            next_up = optimal_path.ElementAt(update_count + 1);
+            List<Vector3> real_answers = SteerLive(transform.position, next_up[0], m_Drone.velocity);
             Vector3 ctrl_input = real_answers[2];
             m_Drone.Move(ctrl_input.x, ctrl_input.z);
         }
@@ -423,6 +412,7 @@ public class DroneAI : MonoBehaviour
         }
     }
 
+
     private LinkedList<PathTree<Vector3>> GetPath(PathTree<Vector3> target)
     {
         // Returns a list of nodes where path[0] is start and path[n] is target.
@@ -460,9 +450,9 @@ public class DroneAI : MonoBehaviour
 class PathTree<T>
 {
     public static Dictionary<T, PathTree<T>> node_dict = new Dictionary<T, PathTree<T>>();
-    private T position;
+    private T position;                                     // Position of this node.
     private T velocity;
-    private T input;                                       // Position of this node.
+    private T input;                                        
     private float cost;                                     // Total cost to reach this node.
     private LinkedList<PathTree<T>> children;               // List of this nodes' children.
     private PathTree<T> parent;                             // This nodes' parent.
