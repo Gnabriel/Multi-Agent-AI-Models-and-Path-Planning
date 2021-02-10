@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using UnityEngine;
 using System;
 using Random = UnityEngine.Random;
+using UnityEngine.AI;
 
 
 namespace UnityStandardAssets.Vehicles.Car
@@ -37,31 +38,105 @@ namespace UnityStandardAssets.Vehicles.Car
             int current_i;
             int current_j;
             Vector3 current_pos = source.GetPosition();
-
-            //Debug.Log("---------");
-            //Debug.Log("Source position: " + current_pos.ToString());
-            //Debug.Log("Target position: " + target_pos.ToString());
-
             while (current_pos != target_pos)
             {
                 current_pos = Vector3.MoveTowards(current_pos, target_pos, step);
                 current_i = terrain_manager.myInfo.get_i_index(current_pos[0]);
                 current_j = terrain_manager.myInfo.get_j_index(current_pos[2]);
-
-                //Debug.Log("Current position: " + current_pos.ToString());
-                //Debug.Log("Current i = " + current_i.ToString() + ", j = " + current_j.ToString());
-
                 if (terrain_manager.myInfo.traversability[current_i, current_j] == 1)       // Collision.
                 {
-                    //Debug.Log("Collision found: " + current_pos.ToString() + " at i = " + current_i.ToString() + ", j = " + current_j.ToString());
                     return true;
                 }
             }
+            return false;                                                                   // No collision.
+        }
 
-            //Debug.Log("No collision found. This path is clear.");
-            //Debug.Log("---------");
-            //Debug.Log("");
-            return false;                                                           // No collision.
+        private void MarginObstacles(float margin)
+        {
+            float[,] traversability = terrain_manager.myInfo.traversability;
+            int x_N = terrain_manager.myInfo.x_N;
+            int z_N = terrain_manager.myInfo.z_N;
+            float x_low = terrain_manager.myInfo.x_low;
+            float x_high = terrain_manager.myInfo.x_high;
+            float z_low = terrain_manager.myInfo.z_low;
+            float z_high = terrain_manager.myInfo.z_high;
+            float x_step = (x_high - x_low) / x_N;
+            float z_step = (z_high - z_low) / z_N;
+
+            float obstacle_width = (x_high - x_low) / x_N;
+            float obstacle_height = (z_high - z_low) / z_N;
+
+            float x_step_new = x_step;
+            float z_step_new = z_step;
+            while (margin > x_step_new || margin > z_step_new)          // Increase resolution of new grid until one cell size is less than or equal to the margin.
+            {
+                x_step_new = x_step_new / 2;
+                z_step_new = z_step_new / 2;
+            }
+
+            int x_N_new = (int)Math.Ceiling((x_high - x_low) / x_step_new);
+            int z_N_new = (int)Math.Ceiling((z_high - z_low) / z_step_new);
+            float[,] traversability_new = new float[x_N_new, z_N_new];
+            float margined_obstacle_width = obstacle_width + margin;
+            float margined_obstacle_heigh = obstacle_height + margin;
+
+            for (int i = 0; i < x_N; i++)
+            {
+                for (int j = 0; j < z_N; j++)
+                {
+                    if (traversability[i, j] == 1)          // Obstacle in original matrix.
+                    {
+                        float obstacle_center_x = terrain_manager.myInfo.get_x_pos(i);
+                        float obstacle_center_z = terrain_manager.myInfo.get_z_pos(j);
+
+                        float margined_obstacle_corner_1_x = obstacle_center_x + margined_obstacle_width;
+                        float margined_obstacle_corner_1_z = obstacle_center_z + margined_obstacle_heigh;
+
+                        float margined_obstacle_corner_2_x = obstacle_center_x + margined_obstacle_width;
+                        float margined_obstacle_corner_2_z = obstacle_center_z - margined_obstacle_heigh;
+
+                        float margined_obstacle_corner_3_x = obstacle_center_x - margined_obstacle_width;
+                        float margined_obstacle_corner_3_z = obstacle_center_z + margined_obstacle_heigh;
+
+                        float margined_obstacle_corner_4_x = obstacle_center_x - margined_obstacle_width;
+                        float margined_obstacle_corner_4_z = obstacle_center_z - margined_obstacle_heigh;
+
+                        float length = 0;
+                        for (int x = 0; x < length; x++)
+                        {
+
+                        }
+                        
+                        float x_apa = 0;
+                        float z_apa = 0;
+
+                        int i_apa = (int)Mathf.Floor(x_N * (x_apa - x_low) / (x_high - x_low));
+                        int j_apa = (int)Mathf.Floor(z_N * (z_apa - z_low) / (z_high - z_low));
+
+                    }
+                }
+            }
+        }
+        
+
+        private void BuildObstacleBounds(float obstacle_size)
+        {
+            List<Bounds> obstacle_bounds = new List<Bounds>();
+            for (int i = 0; i < terrain_manager.myInfo.traversability.GetLength(0); i++)
+            {
+                for (int j = 0; j < terrain_manager.myInfo.traversability.GetLength(1); j++)
+                {
+                    if (terrain_manager.myInfo.traversability[i, j] == 1)                   // Collision.
+                    {
+                        float x_pos = terrain_manager.myInfo.get_x_pos(i);
+                        float z_pos = terrain_manager.myInfo.get_z_pos(j);
+                        Vector3 obstacle_center = new Vector3(x_pos, 0.0f, z_pos);
+                        //Bounds obstacle = new Bounds(obstacle_center, obstacle_size);
+                        //obstacle_bounds.Add(obstacle);
+                    }
+                }
+            }
+            //return obstacle_bounds;
         }
 
         private float GetDistance(Vector3 source_pos, Vector3 target_pos)
@@ -496,24 +571,24 @@ namespace UnityStandardAssets.Vehicles.Car
             float y_pos = this.position[2];
 
             // New position.
-            float x_pos_new = x_pos + (this.v_x * Math.Cos(this.r) * dt) - (this.v_y * Math.Sin(this.r) * dt);
-            float y_pos_new = y_pos + (this.v_x * Math.Sin(this.r) * dt) + (this.v_y * Math.Cos(this.r) * dt);
+            float x_pos_new = x_pos + (this.v_x * (float)Math.Cos(this.r) * dt) - (this.v_y * (float)Math.Sin(this.r) * dt);
+            float y_pos_new = y_pos + (this.v_x * (float)Math.Sin(this.r) * dt) + (this.v_y * (float)Math.Cos(this.r) * dt);
 
             // New orientation.
             float omega_new = this.r;
 
             // New y-velocity.
-            float v_y_new = (F_yf / m) * Math.Cos(delta_f) + (F_yr / m) - this.v_x * this.r;
+            float v_y_new = (F_yf / m) * (float)Math.Cos(delta_f) + (F_yr / m) - this.v_x * this.r;
 
             // New turn rate.
-            float r_new = (L_f / I_z) * F_yf * Math.Cos(delta_f) - (L_r / I_z) * F_yr;
+            float r_new = (L_f / I_z) * F_yf * (float)Math.Cos(delta_f) - (L_r / I_z) * F_yr;
 
             //float r_new = DynamicBicycleModel.NormalizeAngle(this.r + this.omega * dt);           // From: github.com/Derekabc.
 
             // Update state.
             this.position = new Vector3(x_pos_new, 0.0f, y_pos_new);
             this.omega = omega_new;
-            this.v_x = null;                                                                        // ?? what should this be??
+            this.v_x = 0.0f;                                                                        // ?? what should this be??
             this.v_y = v_y_new;
             this.r = r_new;
 
@@ -523,7 +598,7 @@ namespace UnityStandardAssets.Vehicles.Car
         public static float NormalizeAngle(float angle)
         {
             // Takes an angle and normalizes it to [-pi, pi].
-            double pi = Math.PI;
+            float pi = (float)Math.PI;
             while (angle > pi)
             {
                 angle -= 2 * pi;
