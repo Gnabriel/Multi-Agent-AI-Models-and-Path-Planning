@@ -10,6 +10,20 @@ public class DroneAI : MonoBehaviour
     bool DEBUG_COLLISION = false;
     int update_count = 0;
     int overshooter = 0;
+
+    float collision_k = 2.5f;//size of the "barrier" for the collision detection (higher values are safer but make it harder to find a path)
+    float steer_k = 8f;//max distance units for RRT (seems like higher values result in smoother paths)
+    float plan_steer_k = 20f;//max distance units for dynamic constraints (if higher than steer_k has no effect; determines detail of final followed path-which is sometimes easier and sometimes harder to actually drive-)
+    float optimal_k = 1f;//allowed distance error wrt to RRT for dynamically feasible path (lower values seem to result in more controlled movements)
+    float limitation = 0.4f;//fraction of max_spd or acc allowed (right now it only affects speed)
+    float goal_thresh = 0.5f;//how many units away from the goal can be considered a success
+    int max_iters = 15000;//max iterations or nodes for RRT/RRT*
+
+    //PARAMS OF BEST RESULTS SO FAR: 
+    //A: goal_thresh = 1; limitation = 0.4; collision = 2.5; steer = 8; plan_steer = 20; optimal k = 1; max iters = 10K. Time ~ 90s
+    //B: goal_thresh = 1; limitation = 0.4; collision = 2.5; steer = 8; plan_steer = 20; optimal k = 1; max iters = 10K<--- NO RESULTS YET
+    //C: goal_thresh = 0.5; limitation = 1; collision = 2.5; steer = 8; plan_steer = 20; optimal k = 1; max iters = 10K. Time ~ 16s
+
     Vector3 total_error = Vector3.zero;
     Vector3 error = Vector3.zero;
     Vector3 prev_error = Vector3.zero;
@@ -37,9 +51,9 @@ public class DroneAI : MonoBehaviour
         Vector3 current_pos = source.GetPosition();
         Vector3 reached_pos = Vector3.zero;
         Vector3 current_vel = source.GetVelocity();
-        if(Vector3.Distance(current_pos, target_pos) > 2f) 
+        if(Vector3.Distance(current_pos, target_pos) > steer_k) 
         {
-            target_pos = Vector3.MoveTowards(current_pos, target_pos, 2f);//modest goal
+            target_pos = Vector3.MoveTowards(current_pos, target_pos, steer_k);//modest goal
         }
         /*
         //Debug.Log("target pos: " + target_pos.ToString() + " current: " + current_pos.ToString());
@@ -83,11 +97,15 @@ public class DroneAI : MonoBehaviour
         //*/
     }
 
-    private List<Vector3> SteerLive(Vector3 from_v, Vector3 to_v, Vector3 from_vel)
+    private List<Vector3> SteerLive(Vector3 from_v, Vector3 to_v, Vector3 from_vel, bool plan = false)
     {
+        if (plan && Vector3.Distance(from_v, to_v) > plan_steer_k)
+        {
+            to_v = Vector3.MoveTowards(from_v, to_v, plan_steer_k);//modest goal
+        }
         Debug.Log("Steeeer");
         float dt = Time.fixedDeltaTime;
-        float max_spd = m_Drone.max_speed * 0.5f;
+        float max_spd = m_Drone.max_speed * limitation;
         float max_acc = m_Drone.max_acceleration;
         Vector3 target_vel = (to_v - from_v) / dt;
         Vector3 true_vel;
@@ -125,9 +143,9 @@ public class DroneAI : MonoBehaviour
         float step = 0.05f * GetDistance(current_pos, target_pos);
         int current_i;
         int current_j;
-        float length = 3.0f;
-        List<Vector3> tilings = new List<Vector3> { Vector3.zero, new Vector3(length, 0, 0), new Vector3(-length, 0, 0), new Vector3(0, 0, length), new Vector3(0, 0, -length) };//,
-                                                    //new Vector3(length, 0, length), new Vector3(-length, 0, -length), new Vector3(-length, 0, length), new Vector3(length, 0, -length)};
+        float length = collision_k;
+        List<Vector3> tilings = new List<Vector3> { Vector3.zero, new Vector3(length, 0, 0), new Vector3(-length, 0, 0), new Vector3(0, 0, length), new Vector3(0, 0, -length),
+                                                    new Vector3(length, 0, length), new Vector3(-length, 0, -length), new Vector3(-length, 0, length), new Vector3(length, 0, -length)};
 
 
 
@@ -258,12 +276,13 @@ public class DroneAI : MonoBehaviour
         var traversability = terrain_manager.myInfo.traversability;
 
         // ----------- RRT* -----------
-        int tree_size = 10000;
+        int tree_size = max_iters;
         PathTree<Vector3> root = new PathTree<Vector3>(start_pos, Vector3.zero, Vector3.zero);//start with zero velocity and no input
-
+        int count = 0;
         //for (int i = 0; i < iterations; i++)
         while (PathTree<Vector3>.node_dict.Count < tree_size)
         {
+            count++;
             // - Pick a random point a in X.
             Vector3 a_pos;
             Vector3 rnd_pos;
@@ -273,7 +292,7 @@ public class DroneAI : MonoBehaviour
                 float z_rnd = Random.Range(z_low, z_high);
                 float p_rnd = Random.Range(0.0f, 1.0f);
                 float rnd_trav;
-                if (p_rnd < 0.05f)
+                if (p_rnd < 0.05f)//((float) count/(float) max_iters))
                 {
                     rnd_pos = goal_pos;
                     rnd_trav = 0.0f;
@@ -296,7 +315,7 @@ public class DroneAI : MonoBehaviour
             }
 
             PathTree<Vector3> newest = RRTStarExpand(a_pos);
-            if (newest != null && Vector3.Distance(newest.GetPosition(), goal_pos) < 1f)
+            if (newest != null && Vector3.Distance(newest.GetPosition(), goal_pos) < goal_thresh)
             {
                 Debug.Log("close enough!");
                 break;
@@ -375,9 +394,9 @@ public class DroneAI : MonoBehaviour
         for (int k = 1; k < suboptimal_path.Count - 1; k++)
         {
             nasta = suboptimal_path.ElementAt(k);
-            while(Vector3.Distance(reached[0], nasta.GetPosition()) > 0.5f) //&& (Vector3.Distance(reached[0], goal.GetPosition()) > (Vector3.Distance(nasta.GetPosition(), goal.GetPosition()))))
+            while(Vector3.Distance(reached[0], nasta.GetPosition()) > optimal_k) //&& (Vector3.Distance(reached[0], goal.GetPosition()) > (Vector3.Distance(nasta.GetPosition(), goal.GetPosition()))))
             {
-                reached = SteerLive(reached[0], nasta.GetPosition(), reached[1]);
+                reached = SteerLive(reached[0], nasta.GetPosition(), reached[1], true);
                 optimal_path.AddLast(reached);
             }
         }
