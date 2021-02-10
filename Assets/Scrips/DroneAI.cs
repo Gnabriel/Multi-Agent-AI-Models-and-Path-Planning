@@ -87,7 +87,7 @@ public class DroneAI : MonoBehaviour
     {
         Debug.Log("Steeeer");
         float dt = Time.fixedDeltaTime;
-        float max_spd = m_Drone.max_speed * 0.3f;
+        float max_spd = m_Drone.max_speed * 0.5f;
         float max_acc = m_Drone.max_acceleration;
         Vector3 target_vel = (to_v - from_v) / dt;
         Vector3 true_vel;
@@ -126,7 +126,8 @@ public class DroneAI : MonoBehaviour
         int current_i;
         int current_j;
         float length = 3.0f;
-        List<Vector3> tilings = new List<Vector3> { Vector3.zero, new Vector3(length, 0, 0), new Vector3(-length, 0, 0), new Vector3(0, 0, length), new Vector3(0, 0, -length) };
+        List<Vector3> tilings = new List<Vector3> { Vector3.zero, new Vector3(length, 0, 0), new Vector3(-length, 0, 0), new Vector3(0, 0, length), new Vector3(0, 0, -length) };//,
+                                                    //new Vector3(length, 0, length), new Vector3(-length, 0, -length), new Vector3(-length, 0, length), new Vector3(length, 0, -length)};
 
 
 
@@ -374,7 +375,7 @@ public class DroneAI : MonoBehaviour
         for (int k = 1; k < suboptimal_path.Count - 1; k++)
         {
             nasta = suboptimal_path.ElementAt(k);
-            while(Vector3.Distance(reached[0], nasta.GetPosition()) > 0.2f) //&& (Vector3.Distance(reached[0], goal.GetPosition()) > (Vector3.Distance(nasta.GetPosition(), goal.GetPosition()))))
+            while(Vector3.Distance(reached[0], nasta.GetPosition()) > 0.5f) //&& (Vector3.Distance(reached[0], goal.GetPosition()) > (Vector3.Distance(nasta.GetPosition(), goal.GetPosition()))))
             {
                 reached = SteerLive(reached[0], nasta.GetPosition(), reached[1]);
                 optimal_path.AddLast(reached);
@@ -431,7 +432,7 @@ public class DroneAI : MonoBehaviour
             //I = 0.25f;
             // D = 0f;
         }
-        if (Vector3.Distance(transform.position, nasta_up[0]) < 1f || update_count == 0 ||true) //&& (Vector3.Distance(transform.position, goal[0]) > (Vector3.Distance(nasta_up[0], goal[0]))))
+        if (Vector3.Distance(transform.position, nasta_up[0]) < 0.2f || update_count == 0 ||true) //&& (Vector3.Distance(transform.position, goal[0]) > (Vector3.Distance(nasta_up[0], goal[0]))))
         {
             update_count += 1;
         }
