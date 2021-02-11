@@ -121,7 +121,7 @@ namespace DubinsPath
             List<Vector3> pathCoordinates = pathData.pathCoordinates;
 
             //Display the final line
-            lineRenderer.SetVertexCount(pathCoordinates.Count);
+            lineRenderer.positionCount = pathCoordinates.Count;
 
             for (int i = 0; i < pathCoordinates.Count; i++)
             {

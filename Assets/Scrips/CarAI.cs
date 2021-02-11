@@ -17,7 +17,7 @@ namespace UnityStandardAssets.Vehicles.Car
 
         int max_iters = 1000;           // Max iterations or nodes for RRT/RRT*.
         float collision_k = 2.5f;       // Size of the "barrier" for the collision detection (higher values are safer but make it harder to find a path).
-        float steer_k = 8f;             // Max distance units for RRT (seems like higher values result in smoother paths).
+        //float steer_k = 8f;             // Max distance units for RRT (seems like higher values result in smoother paths).
         //float plan_steer_k = 20f;       // Max distance units for dynamic constraints (if higher than steer_k has no effect; determines detail of final followed path-which is sometimes easier and sometimes harder to actually drive-).
         //float optimal_k = 1f;           // Allowed distance error wrt to RRT for dynamically feasible path (lower values seem to result in more controlled movements).
         //float limitation = 0.4f;        // Fraction of max_spd or acc allowed (right now it only affects speed).
@@ -533,7 +533,7 @@ namespace UnityStandardAssets.Vehicles.Car
         private float velocity;
         
         private static float length = 5.0f;                         // Vehicle length.  (from Group 3)
-        private static float width = 2.5f;                          // Vehicle width.   (from Group 3)
+        //private static float width = 2.5f;                          // Vehicle width.   (from Group 3)
         private static float v_max = float.PositiveInfinity;        // Maximum velocity.
         private static float phi_max = float.PositiveInfinity;      // Maximum steering angle.
 
