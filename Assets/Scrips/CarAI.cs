@@ -346,10 +346,10 @@ namespace UnityStandardAssets.Vehicles.Car
 
         private void DrawRRT()
         {
-            foreach (KeyValuePair<Vector3, PathTree<Vector3>> kvp in PathTree<Vector3>.node_dict)
+            foreach (KeyValuePair<Vector3, PathTree> kvp in PathTree.node_dict)
             {
-                PathTree<Vector3> node = kvp.Value;
-                foreach (PathTree<Vector3> child in node.GetChildren())
+                PathTree node = kvp.Value;
+                foreach (PathTree child in node.GetChildren())
                 {
                     Debug.DrawLine(node.GetPosition(), child.GetPosition(), Color.red, float.PositiveInfinity);
                 }
