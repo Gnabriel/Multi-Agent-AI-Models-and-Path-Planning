@@ -15,7 +15,7 @@ namespace UnityStandardAssets.Vehicles.Car
         //int update_count = 0;
         //int overshooter = 0;
 
-        int max_iters = 5000;           // Max iterations or nodes for RRT/RRT*.
+        int max_iters = 1000;           // Max iterations or nodes for RRT/RRT*.
         float collision_k = 2.5f;       // Size of the "barrier" for the collision detection (higher values are safer but make it harder to find a path).
         float steer_k = 8f;             // Max distance units for RRT (seems like higher values result in smoother paths).
         //float plan_steer_k = 20f;       // Max distance units for dynamic constraints (if higher than steer_k has no effect; determines detail of final followed path-which is sometimes easier and sometimes harder to actually drive-).
@@ -56,13 +56,12 @@ namespace UnityStandardAssets.Vehicles.Car
             float reached_z = (target_z - source_z) / dt;
             Vector3 reached_position = new Vector3(reached_x, 0.0f, reached_z);
             float reached_orientation = (target_orientation - source_orientation) / dt;
-            KinematicCarModel reached_state = new KinematicCarModel(reached_position, reached_orientation);
 
-            // This can be utilized somehow to get the input.
-            //var input = KinematicCarModel.GetInputFromState(reached_x, reached_z, reached_orientation);
-            //float velocity = input.Item1;
+            var input = KinematicCarModel.GetInputFromState(reached_x, reached_z, reached_orientation);
+            float velocity = input.Item1;
             //float steering_angle = input.Item2;
 
+            KinematicCarModel reached_state = new KinematicCarModel(reached_position, reached_orientation, velocity);
             return reached_state;
         }
 
@@ -170,20 +169,22 @@ namespace UnityStandardAssets.Vehicles.Car
                     b = kvp.Value;
                 }
             }
-            KinematicCarModel a_state = new KinematicCarModel(a_pos, a_orientation);
+            float a_velocity = 1.0f;                                // +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++ TODO: What should a's velocity be? +++++++++++++++++++++++++++++++++++++++++++++++++++++
+            KinematicCarModel a_state = new KinematicCarModel(a_pos, a_orientation, a_velocity);
 
             // - Find control inputs u to steer the robot from b to a.
             // - Apply control inputs u for time t, so robot reaches c.
             KinematicCarModel c_state = Steer(b, a_state);
             Vector3 c_pos = c_state.GetPosition();
             float c_orientation = c_state.GetOrientation();
+            float c_velocity = c_state.GetVelocity();
 
             // - If no collisions occur in getting from b to c:
             if (CheckCollision(b, c_pos) is false)
             {
                 //      - Add c as child.
                 float b_to_c_cost = GetDistance(b.GetPosition(), c_pos);
-                PathTree c = b.AddChild(c_pos, c_vel, c_acc, b_to_c_cost);
+                PathTree c = b.AddChild(c_pos, c_velocity, c_orientation, b_to_c_cost);
 
                 //      - Find set of Neighbors N of c.
                 List<PathTree> c_neighbors = GetNeighbors(c);
@@ -273,7 +274,7 @@ namespace UnityStandardAssets.Vehicles.Car
                     if (traversability[i_rnd, j_rnd] == 0.0f && PathTree.GetNode(rnd_pos) is null)        // Non-obstacle and not already in tree.
                     {
                         a_pos = rnd_pos;
-                        a_orientation = Random.Range(0, 2*Math.PI);
+                        a_orientation = Random.Range(0, 2 * (float)Math.PI);
                         break;
                     }
                 }
@@ -434,7 +435,6 @@ namespace UnityStandardAssets.Vehicles.Car
     {
         public static Dictionary<Vector3, PathTree> node_dict = new Dictionary<Vector3, PathTree>();
         private KinematicCarModel state;                                        // Motion model of the vehicle.
-        private float velocity;
         private float cost;                                     // Total cost to reach this node.
         private LinkedList<PathTree> children;               // List of this nodes' children.
         private PathTree parent;                             // This nodes' parent.
@@ -442,8 +442,7 @@ namespace UnityStandardAssets.Vehicles.Car
         public PathTree(Vector3 position, float velocity, float orientation)
         {
             // Constructor for root node.
-            this.state = new KinematicCarModel(position, orientation);
-            this.velocity = velocity;
+            this.state = new KinematicCarModel(position, orientation, velocity);
             this.cost = 0f;
             this.children = new LinkedList<PathTree>();
             this.parent = null;
@@ -453,8 +452,7 @@ namespace UnityStandardAssets.Vehicles.Car
         public PathTree(Vector3 position, float velocity, float orientation, float cost)
         {
             // Constructor for non-root nodes.
-            this.state = new KinematicCarModel(position, orientation);
-            this.velocity = velocity;
+            this.state = new KinematicCarModel(position, orientation, velocity);
             this.cost = cost;
             this.children = new LinkedList<PathTree>();
             node_dict.Add(this.state.GetPosition(), this);
@@ -490,7 +488,7 @@ namespace UnityStandardAssets.Vehicles.Car
 
         public float GetVelocity()
         {
-            return this.velocity;
+            return this.state.GetVelocity();
         }
 
         public float GetCost()
@@ -532,16 +530,18 @@ namespace UnityStandardAssets.Vehicles.Car
         // A class that represents the state of a vehicle according to the Kinematic Car Model.
         private Vector3 position;                                   // Position of center of gravity.
         private float theta;                                        // The orientation of the vehicle (in radians).
+        private float velocity;
         
         private static float length = 5.0f;                         // Vehicle length.  (from Group 3)
         private static float width = 2.5f;                          // Vehicle width.   (from Group 3)
         private static float v_max = float.PositiveInfinity;        // Maximum velocity.
         private static float phi_max = float.PositiveInfinity;      // Maximum steering angle.
 
-        public KinematicCarModel(Vector3 position, float orientation)
+        public KinematicCarModel(Vector3 position, float orientation, float velocity)
         {
             this.position = position;
             this.theta = orientation;
+            this.velocity = velocity;
         }
 
         public void UpdateState(float v, float phi)
@@ -575,6 +575,11 @@ namespace UnityStandardAssets.Vehicles.Car
         public float GetOrientation()
         {
             return this.theta;
+        }
+
+        public float GetVelocity()
+        {
+            return this.velocity;
         }
 
         public static (float, float) GetInputFromState(float x_dot, float z_dot, float theta_dot)
