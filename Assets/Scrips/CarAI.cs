@@ -26,7 +26,7 @@ namespace UnityStandardAssets.Vehicles.Car
 
         List<Vector3> next_up = new List<Vector3>();
         LinkedList<List<Vector3>> optimal_path = new LinkedList<List<Vector3>>();
-        LinkedList<PathTree<Vector3>> suboptimal_path;
+        LinkedList<PathTree> suboptimal_path;
 
 
         private CarController m_Car;    // The car controller we want to use.
@@ -34,19 +34,38 @@ namespace UnityStandardAssets.Vehicles.Car
         public GameObject terrain_manager_game_object;
         TerrainManager terrain_manager;
 
-        private List<Vector3> Steer(PathTree<Vector3> source, Vector3 target_pos)
+
+        private KinematicCarModel Steer(PathTree source, KinematicCarModel target_state)
         {
-            // The Reeds-Shepp/Dubins curves are calculated in the steer function.
-            Vector3 current_pos = source.GetPosition();
-            Vector3 reached_pos = Vector3.zero;
-            Vector3 current_vel = source.GetVelocity();
-            if (GetDistance(current_pos, target_pos) > steer_k)
-            {
-                target_pos = Vector3.MoveTowards(current_pos, target_pos, steer_k);
-            }
-            List<Vector3> Dummy = new List<Vector3> { target_pos, current_vel, Vector3.zero };
-            return Dummy;
+            float dt = Time.fixedDeltaTime;
+
+            // Source parameters.
+            KinematicCarModel source_state = source.GetState();
+            Vector3 source_pos = source_state.GetPosition();
+            float source_x = source_pos[0];
+            float source_z = source_pos[2];
+            float source_orientation = source_state.GetOrientation();
+
+            // Target parameters.
+            Vector3 target_pos = target_state.GetPosition();
+            float target_x = target_pos[0];
+            float target_z = target_pos[2];
+            float target_orientation = target_state.GetOrientation();
+
+            float reached_x = (target_x - source_x) / dt;
+            float reached_z = (target_z - source_z) / dt;
+            Vector3 reached_position = new Vector3(reached_x, 0.0f, reached_z);
+            float reached_orientation = (target_orientation - source_orientation) / dt;
+            KinematicCarModel reached_state = new KinematicCarModel(reached_position, reached_orientation);
+
+            // This can be utilized somehow to get the input.
+            //var input = KinematicCarModel.GetInputFromState(reached_x, reached_z, reached_orientation);
+            //float velocity = input.Item1;
+            //float steering_angle = input.Item2;
+
+            return reached_state;
         }
+
 
         private bool GenerateDubinsPath()
         {
@@ -56,7 +75,8 @@ namespace UnityStandardAssets.Vehicles.Car
             return false;
         }
 
-        private bool CheckCollision(PathTree<Vector3> source, Vector3 target_pos)
+
+        private bool CheckCollision(PathTree source, Vector3 target_pos)
         {
             Vector3 current_pos = source.GetPosition();
             Vector3 collision_pos;
@@ -85,7 +105,8 @@ namespace UnityStandardAssets.Vehicles.Car
             return false;                                                                       // No collision.
         }
 
-        private bool __Obsolete__CheckCollision(PathTree<Vector3> source, Vector3 target_pos)
+
+        private bool __Obsolete__CheckCollision(PathTree source, Vector3 target_pos)
         {
             // Old CheckCollision() without marginalization.
             float step = 1f;        // TODO: Experiment with the step size.
@@ -105,17 +126,20 @@ namespace UnityStandardAssets.Vehicles.Car
             return false;                                                                   // No collision.
         }
 
+
         private float GetDistance(Vector3 source_pos, Vector3 target_pos)
         {
+            // Returns Euclidian distance.
             return Vector3.Distance(source_pos, target_pos);
         }
 
-        private List<PathTree<Vector3>> GetNeighbors(PathTree<Vector3> source)
+
+        private List<PathTree> GetNeighbors(PathTree source)
         {
             float search_radius = 20f;                                              // TODO: Experiment with this value.
             float dist;
-            List<PathTree<Vector3>> neighbors = new List<PathTree<Vector3>>();
-            foreach (KeyValuePair<Vector3, PathTree<Vector3>> kvp in PathTree<Vector3>.node_dict)
+            List<PathTree> neighbors = new List<PathTree>();
+            foreach (KeyValuePair<Vector3, PathTree> kvp in PathTree.node_dict)
             {
                 dist = GetDistance(kvp.Key, source.GetPosition());
                 if (dist <= search_radius)
@@ -130,13 +154,14 @@ namespace UnityStandardAssets.Vehicles.Car
             return neighbors;
         }
 
-        private PathTree<Vector3> RRTStarExpand(Vector3 a_pos)
+
+        private PathTree RRTStarExpand(Vector3 a_pos, float a_orientation)
         {
             // - Find b, the node of the tree closest to a.
-            PathTree<Vector3> b = null;
+            PathTree b = null;
             float dist;
             float min_dist = float.PositiveInfinity;
-            foreach (KeyValuePair<Vector3, PathTree<Vector3>> kvp in PathTree<Vector3>.node_dict)
+            foreach (KeyValuePair<Vector3, PathTree> kvp in PathTree.node_dict)
             {
                 dist = GetDistance(kvp.Key, a_pos);
                 if (dist < min_dist)
@@ -145,29 +170,29 @@ namespace UnityStandardAssets.Vehicles.Car
                     b = kvp.Value;
                 }
             }
+            KinematicCarModel a_state = new KinematicCarModel(a_pos, a_orientation);
 
             // - Find control inputs u to steer the robot from b to a.
             // - Apply control inputs u for time t, so robot reaches c.
-            List<Vector3> c_dynamics = Steer(b, a_pos);
-            Vector3 c_pos = c_dynamics[0];
-            Vector3 c_vel = c_dynamics[1];
-            Vector3 c_acc = c_dynamics[2];
+            KinematicCarModel c_state = Steer(b, a_state);
+            Vector3 c_pos = c_state.GetPosition();
+            float c_orientation = c_state.GetOrientation();
 
             // - If no collisions occur in getting from b to c:
             if (CheckCollision(b, c_pos) is false)
             {
                 //      - Add c as child.
                 float b_to_c_cost = GetDistance(b.GetPosition(), c_pos);
-                PathTree<Vector3> c = b.AddChild(c_pos, c_vel, c_acc, b_to_c_cost);
+                PathTree c = b.AddChild(c_pos, c_vel, c_acc, b_to_c_cost);
 
                 //      - Find set of Neighbors N of c.
-                List<PathTree<Vector3>> c_neighbors = GetNeighbors(c);
+                List<PathTree> c_neighbors = GetNeighbors(c);
 
                 //      - Choose Best parent.
-                PathTree<Vector3> best_parent = b;
+                PathTree best_parent = b;
                 float c_cost_min = c.GetCost();
 
-                foreach (PathTree<Vector3> c_neighbor in c_neighbors)
+                foreach (PathTree c_neighbor in c_neighbors)
                 {
                     float neighbor_to_c_cost = GetDistance(c_neighbor.GetPosition(), c.GetPosition());
                     float c_cost_new = c_neighbor.GetCost() + neighbor_to_c_cost;
@@ -180,7 +205,7 @@ namespace UnityStandardAssets.Vehicles.Car
                 best_parent.AdoptChild(c, c_cost_min);
 
                 //      - Try to adopt Neighbors (if good).
-                foreach (PathTree<Vector3> c_neighbor in c_neighbors)
+                foreach (PathTree c_neighbor in c_neighbors)
                 {
                     float c_to_neighbor_cost = GetDistance(c.GetPosition(), c_neighbor.GetPosition());
                     float neighbor_cost_new = c.GetCost() + c_to_neighbor_cost;
@@ -193,6 +218,7 @@ namespace UnityStandardAssets.Vehicles.Car
             }
             return null;
         }
+
 
         private void Start()
         {
@@ -227,13 +253,14 @@ namespace UnityStandardAssets.Vehicles.Car
             //int iterations = 5000;
             int tree_size = max_iters;
             float root_orientation = 0.0f;                                       // +++++++++++++++++++++++++++++++ TODO: Find a way to get the orientation of start position. +++++++++++++++++++++++++++++++
-            PathTree<Vector3> root = new PathTree<Vector3>(start_pos, 0.0f, root_orientation);      // Start with zero velocity.
+            PathTree root = new PathTree(start_pos, 0.0f, root_orientation);      // Start with zero velocity.
 
             //for (int i = 0; i < iterations; i++)
-            while (PathTree<Vector3>.node_dict.Count < tree_size)
+            while (PathTree.node_dict.Count < tree_size)
             {
                 // - Pick a random point a in X.
                 Vector3 a_pos;
+                float a_orientation;
                 Vector3 rnd_pos;
                 while (true)
                 {
@@ -243,18 +270,19 @@ namespace UnityStandardAssets.Vehicles.Car
                     int j_rnd = terrain_manager.myInfo.get_j_index(z_rnd);
                     rnd_pos = new Vector3(x_rnd, 0.0f, z_rnd);
 
-                    if (traversability[i_rnd, j_rnd] == 0.0f && PathTree<Vector3>.GetNode(rnd_pos) is null)        // Non-obstacle and not already in tree.
+                    if (traversability[i_rnd, j_rnd] == 0.0f && PathTree.GetNode(rnd_pos) is null)        // Non-obstacle and not already in tree.
                     {
                         a_pos = rnd_pos;
+                        a_orientation = Random.Range(0, 2*Math.PI);
                         break;
                     }
                 }
-
-                RRTStarExpand(a_pos);
+                RRTStarExpand(a_pos, a_orientation);
             }
 
             // Add the goal to the RRT* path.
-            PathTree<Vector3> goal = RRTStarExpand(goal_pos);
+            float goal_orientation = -1.0f;                                              // We don't care about the orientation at the goal position.
+            PathTree goal = RRTStarExpand(goal_pos, goal_orientation);
 
             if (goal is null)
             {
@@ -279,8 +307,8 @@ namespace UnityStandardAssets.Vehicles.Car
 
             // ----------- Add dynamic constraints to path -----------
             //suboptimal_path = GetPath(goal);
-            //PathTree<Vector3> current = suboptimal_path.ElementAt(0);
-            //PathTree<Vector3> next = suboptimal_path.ElementAt(1);
+            //PathTree current = suboptimal_path.ElementAt(0);
+            //PathTree next = suboptimal_path.ElementAt(1);
             //List<Vector3> reached = new List<Vector3>();
             //reached = SteerLive(current.GetPosition(), next.GetPosition(), current.GetVelocity());
             //List<Vector3> opt_root = new List<Vector3> { current.GetPosition(), current.GetVelocity(), Vector3.zero };
@@ -328,18 +356,18 @@ namespace UnityStandardAssets.Vehicles.Car
         }
 
 
-        IEnumerator DrawRRTLive(PathTree<Vector3> root, PathTree<Vector3> goal)
+        IEnumerator DrawRRTLive(PathTree root, PathTree goal)
         {
             // Draws the path live with a BFS search.
             WaitForSeconds wait = new WaitForSeconds(0.0001f);                 // Wait time between lines being drawn.
-            LinkedList<PathTree<Vector3>> queue = new LinkedList<PathTree<Vector3>>();
+            LinkedList<PathTree> queue = new LinkedList<PathTree>();
             queue.AddLast(root);
 
             while (true)
             {
-                PathTree<Vector3> node = queue.First.Value;
+                PathTree node = queue.First.Value;
                 queue.RemoveFirst();
-                foreach (PathTree<Vector3> child in node.GetChildren())
+                foreach (PathTree child in node.GetChildren())
                 {
                     queue.AddLast(child);
                     Debug.DrawLine(node.GetPosition(), child.GetPosition(), Color.red, float.PositiveInfinity);
@@ -354,12 +382,12 @@ namespace UnityStandardAssets.Vehicles.Car
         }
 
 
-        private LinkedList<PathTree<Vector3>> GetPath(PathTree<Vector3> target)
+        private LinkedList<PathTree> GetPath(PathTree target)
         {
             // Returns a list of nodes where path[0] is start and path[n] is target.
-            LinkedList<PathTree<Vector3>> path = new LinkedList<PathTree<Vector3>>();
-            PathTree<Vector3> current = target;
-            PathTree<Vector3> parent;
+            LinkedList<PathTree> path = new LinkedList<PathTree>();
+            PathTree current = target;
+            PathTree parent;
             while (!(current.GetParent() is null))
             {
                 parent = current.GetParent();
@@ -370,27 +398,27 @@ namespace UnityStandardAssets.Vehicles.Car
         }
 
 
-        private void DrawPath(PathTree<Vector3> target)
+        private void DrawPath(PathTree target)
         {
-            LinkedList<PathTree<Vector3>> path = GetPath(target);
-            foreach (PathTree<Vector3> node in path)
+            LinkedList<PathTree> path = GetPath(target);
+            foreach (PathTree node in path)
             {
                 if (node.GetPosition() == target.GetPosition())
                 {
                     // We have reached the goal.
                     break;
                 }
-                PathTree<Vector3> parent = node.GetParent();
+                PathTree parent = node.GetParent();
                 Debug.DrawLine(node.GetPosition(), parent.GetPosition(), Color.blue, float.PositiveInfinity);
             }
         }
 
 
-        IEnumerator DrawPathLive(PathTree<Vector3> target)
+        IEnumerator DrawPathLive(PathTree target)
         {
             WaitForSeconds wait = new WaitForSeconds(0.2f);                 // Wait time between lines being drawn.
-            PathTree<Vector3> current = target;
-            PathTree<Vector3> parent;
+            PathTree current = target;
+            PathTree parent;
             while (!(current.GetParent() is null))
             {
                 parent = current.GetParent();
@@ -402,51 +430,51 @@ namespace UnityStandardAssets.Vehicles.Car
     }
 
 
-    class PathTree<T>
+    class PathTree
     {
-        public static Dictionary<T, PathTree<T>> node_dict = new Dictionary<T, PathTree<T>>();
-        private T model;                                        // Motion model of the vehicle.
+        public static Dictionary<Vector3, PathTree> node_dict = new Dictionary<Vector3, PathTree>();
+        private KinematicCarModel state;                                        // Motion model of the vehicle.
         private float velocity;
         private float cost;                                     // Total cost to reach this node.
-        private LinkedList<PathTree<T>> children;               // List of this nodes' children.
-        private PathTree<T> parent;                             // This nodes' parent.
+        private LinkedList<PathTree> children;               // List of this nodes' children.
+        private PathTree parent;                             // This nodes' parent.
 
-        public PathTree(T position, float velocity, float orientation)
+        public PathTree(Vector3 position, float velocity, float orientation)
         {
             // Constructor for root node.
-            this.model = new KinematicCarModel(position, orientation);
+            this.state = new KinematicCarModel(position, orientation);
             this.velocity = velocity;
             this.cost = 0f;
-            this.children = new LinkedList<PathTree<T>>();
+            this.children = new LinkedList<PathTree>();
             this.parent = null;
-            node_dict.Add(this.position, this);
+            node_dict.Add(this.state.GetPosition(), this);
         }
 
-        public PathTree(T position, float velocity, float orientation, float cost)
+        public PathTree(Vector3 position, float velocity, float orientation, float cost)
         {
             // Constructor for non-root nodes.
-            this.model = new KinematicCarModel(position, orientation);
+            this.state = new KinematicCarModel(position, orientation);
             this.velocity = velocity;
             this.cost = cost;
-            this.children = new LinkedList<PathTree<T>>();
-            node_dict.Add(this.model.GetPosition(), this);
+            this.children = new LinkedList<PathTree>();
+            node_dict.Add(this.state.GetPosition(), this);
         }
 
-        public PathTree<T> AddChild(T position, float velocity, float orientation, float sub_cost)
+        public PathTree AddChild(Vector3 position, float velocity, float orientation, float sub_cost)
         {
             float child_cost = this.cost + sub_cost;
-            PathTree<T> new_child = new PathTree<T>(position, velocity, orientation, child_cost);
+            PathTree new_child = new PathTree(position, velocity, orientation, child_cost);
             this.children.AddLast(new_child);
             new_child.parent = this;
             return new_child;
         }
 
-        public bool RemoveChild(PathTree<T> child)
+        public bool RemoveChild(PathTree child)
         {
             return children.Remove(child);
         }
 
-        public PathTree<T> AdoptChild(PathTree<T> child, float child_cost)
+        public PathTree AdoptChild(PathTree child, float child_cost)
         {
             child.parent.RemoveChild(child);                        // Removes old parent.
             this.children.AddLast(child);                           // Adds the child among this' children.
@@ -455,9 +483,9 @@ namespace UnityStandardAssets.Vehicles.Car
             return child;
         }
 
-        public T GetPosition()
+        public Vector3 GetPosition()
         {
-            return this.model.GetPosition();
+            return this.state.GetPosition();
         }
 
         public float GetVelocity()
@@ -470,24 +498,24 @@ namespace UnityStandardAssets.Vehicles.Car
             return this.cost;
         }
 
-        public KinematicCarModel GetModel()
+        public KinematicCarModel GetState()
         {
-            return this.model;
+            return this.state;
         }
 
-        public PathTree<T> GetParent()
+        public PathTree GetParent()
         {
             return this.parent;
         }
 
-        public LinkedList<PathTree<T>> GetChildren()
+        public LinkedList<PathTree> GetChildren()
         {
             return this.children;
         }
 
-        public static PathTree<T> GetNode(T position)
+        public static PathTree GetNode(Vector3 position)
         {
-            foreach (KeyValuePair<T, PathTree<T>> kvp in node_dict)
+            foreach (KeyValuePair<Vector3, PathTree> kvp in node_dict)
             {
                 if (kvp.Key.Equals(position))
                 {
@@ -503,7 +531,7 @@ namespace UnityStandardAssets.Vehicles.Car
     {
         // A class that represents the state of a vehicle according to the Kinematic Car Model.
         private Vector3 position;                                   // Position of center of gravity.
-        private float omega;                                        // The orientation of the vehicle (in radians).
+        private float theta;                                        // The orientation of the vehicle (in radians).
         
         private static float length = 5.0f;                         // Vehicle length.  (from Group 3)
         private static float width = 2.5f;                          // Vehicle width.   (from Group 3)
@@ -513,7 +541,7 @@ namespace UnityStandardAssets.Vehicles.Car
         public KinematicCarModel(Vector3 position, float orientation)
         {
             this.position = position;
-            this.omega = orientation;
+            this.theta = orientation;
         }
 
         public void UpdateState(float v, float phi)
@@ -536,7 +564,7 @@ namespace UnityStandardAssets.Vehicles.Car
             float x_pos = v * (float)Math.Cos(phi);
             float z_pos = v * (float)Math.Sin(phi);
             this.position = new Vector3(x_pos, 0.0f, z_pos);
-            this.omega = (v / length) * (float)Math.Tan(phi);
+            this.theta = (v / length) * (float)Math.Tan(phi);
         }
 
         public Vector3 GetPosition()
@@ -546,7 +574,20 @@ namespace UnityStandardAssets.Vehicles.Car
 
         public float GetOrientation()
         {
-            return this.omega;
+            return this.theta;
+        }
+
+        public static (float, float) GetInputFromState(float x_dot, float z_dot, float theta_dot)
+        {
+            // Derive theta 0:
+            // v = x / cos(0) = y / sin(0)
+            // y = x * sin(0) / cos(0) = x * tan(0)
+            // tan(0) = y / x
+            // 0 = arctan(y / x)
+            float theta = (float)Math.Atan(x_dot / z_dot);
+            float v = x_dot / (float)Math.Cos(theta);
+            float phi = (float)Math.Atan((theta_dot * length) / v);
+            return (v, phi);
         }
 
         public static float NormalizeAngle(float angle)
