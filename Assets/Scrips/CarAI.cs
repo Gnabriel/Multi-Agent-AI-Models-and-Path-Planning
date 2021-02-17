@@ -15,32 +15,55 @@ namespace UnityStandardAssets.Vehicles.Car
         bool DEBUG_RRT_LIVE = false;
         //int overshooter = 0;
         int update_count = 0;
-        int max_iters = 25000;           // Max iterations or nodes for RRT/RRT*.
-        float collision_k = 3.5f;       // Size of the "barrier" for the collision detection (higher values are safer but make it harder to find a path).
-        float steer_k = 3f;             // Max distance units for RRT (seems like higher values result in smoother paths).
-        float plan_steer_k = 20f;       // Max distance units for dynamic constraints (if higher than steer_k has no effect; determines detail of final followed path-which is sometimes easier and sometimes harder to actually drive-).
-        float optimal_k = 3f;           // Allowed distance error wrt to RRT for dynamically feasible path (lower values seem to result in more controlled movements).
-        float limitation = 0.3f;        // Fraction of max_spd or acc allowed (right now it only affects speed).
+        int max_iters = 35000;           // Max iterations or nodes for RRT/RRT*. NB: MIN ITERS = 3K
+        float collision_k = 2.5f;       // Size of the "barrier" for the collision detection (higher values are safer but make it harder to find a path).
+        float steer_k = 3f;             // Max distance units for RRT (seems like higher values result in smoother paths) EZ steer fun.
+        float optimal_k = 6.2f;           // Allowed distance error wrt to RRT for dynamically feasible path (lower values seem to result in more controlled movements).
         float goal_thresh = 0.5f;       // How many units away from the goal can be considered a success.
-        int pwm_steady = 12;
-        int pwm_turn = 31;
+        int pwm_steady = 8;
+        int pwm_turn = 60;
         int pwm_count = 0;
+        int total_iters = 0;
         int pwm;
-        bool pwm_switch = false;
-        float global_ori = (float)Math.PI*0.5f;
-        float prev_ori = (float)Math.PI * 0.5f;
-        Vector3 acc;
-        float length = 4.0f;
+        bool pwm_switch = false;//kill switch when the goal is reached
+        bool turn_360 = false;//unused
+        float global_ori = (float)Math.PI * 0.5f;// currrent global orientation of the car
+        float prev_ori = (float)Math.PI * 0.5f;// previous update's orientation
+        float maxdtheta = 0.04159487f;//in degs: 2.3832 -> found empirically max. yaw rate (unused)
+        
+       
+        Vector3 terrain_root;
+        float length = 4.0f;//found using Unity's grid
+        float MTR;//Minimun turning ratio calculated within the code
+        float total_error = 0f;
+
+        float plan_steer_k = 1f;       // Steps taken to take sharp turns --> SteerCar fun (UNUSED)
+        float plan_optimal_k = 4f;//unused
+        float limitation = 0.3f;        // Fraction of max_spd or acc allowed (right now it only affects speed). (UNUSED)
+        Vector3 acc;//UNUSED
+
+        //PARAMS OF BEST RESULTS SO FAR: 
+        //A: goal_thresh = 0.5; limitation = 0.5 (IRRELEVANT); collision = 3.5; steer = 3; plan_steer = 1; optimal k = 6.2 (later ~ 4); max iters = 35K; pwm_steady = 8; pwm_turn = 60, neighbor earch ratio = 5; Time ~97s ITERS: 11872 --> HAS TO FORCE TURN LEFT START (NB it worked **once** with terrain D's force turn right -> probably started somewhere above -145°)
+        //B: goal_thresh = 0.5; limitation = 0.5 (IRRELEVANT); collision = 3.5; steer = 3; plan_steer = 1; optimal k = 6.2 (later ~ 4); max iters = 35K; pwm_steady = 8; pwm_turn = 60, neighbor earch ratio = 5; Time ~135s ITERS: full 35K
+        //C: goal_thresh = 0.5; limitation = 0.5 (IRRELEVANT); collision = 4.5; steer = 5; plan_steer = 1; optimal k = 4; max iters = 5K; pwm_steady = 5; pwm_turn = 20, neighbor earch ratio = 5; Time ~21s ITERS: 3164
+
+        //D: goal_thresh = 0.5; limitation = 0.5 (IRRELEVANT); collision = 4; steer = 3; plan_steer = 1; optimal k = 6.2 (later ~ 4); max iters = 25K; pwm_steady = 8; pwm_turn = 60, neighbor earch ratio = 5; Time ~96s ITERS: 18462--> HAS TO FORCE TURN RIGHT START --> ADDED ADPTIVE "OPTIMAL K"
+        //E: goal_thresh = 0.5; limitation = 0.5 (IRRELEVANT); collision = 2.5; steer = 3; plan_steer = 1; optimal k = 6.2 (later ~ 4); max iters = 35K; pwm_steady = 8; pwm_turn = 60, neighbor earch ratio = 5; Time ~75s ITERS: 5637
 
 
         List<Vector3> next_up = new List<Vector3>();
         LinkedList<List<Vector3>> optimal_path = new LinkedList<List<Vector3>>();
         LinkedList<PathTree> suboptimal_path = new LinkedList<PathTree>();
+        //LinkedList<Vector3> optimal_path = new LinkedList<Vector3>();
         Vector3 MyVelocity = Vector3.zero;
         Vector3 MyOldPos;
 
-        PathTree current_car;
-        PathTree next_car;
+        //PathTree current_car;
+        //PathTree next_car;
+        List<Vector3> current_car;
+        List<Vector3> next_car;
+
+
 
 
         private CarController m_Car;    // The car controller we want to use.
@@ -81,80 +104,65 @@ namespace UnityStandardAssets.Vehicles.Car
         private Vector3 EasySteer(PathTree source, Vector3 target_pos)
         {
             float pi = (float)Math.PI;
-            float max_steer = (2.5f * m_Car.m_MaximumSteerAngle * pi) / 180f;
-            float turn;
+            //float max_steer = (2.5f * m_Car.m_MaximumSteerAngle * pi) / 180f;
+            //float turn;
             float len;
             Vector3 current_pos = source.GetPosition();
             Vector3 reached_pos = Vector3.zero;
-            /*
-            float ang_dif = (float)Math.Atan2((target_pos - current_pos).z, (target_pos - current_pos).x);
-            if ((ang_dif > pi*0.5f + max_steer) || (ang_dif < -pi * 0.5f))
+            if(current_pos == terrain_root)
             {
-                turn = pi * 0.5f + max_steer;
-            }else
-            {
-                if(ang_dif < pi * 0.5f - max_steer)
-                {
-                    turn = pi * 0.5f - max_steer;
-                } else
-                {
-                    turn = 0f;
-                }
+                return target_pos;
             }
-            if(turn != 0f)
-            {
-                //target_pos = new Vector3((float)Math.Cos(turn) + current_pos.x, 0f, (float)Math.Cos(turn) + current_pos.z);
-                return current_pos;
-            }
-            */
             len = Math.Min(Vector3.Distance(current_pos, target_pos), steer_k);
             reached_pos = Vector3.MoveTowards(current_pos, target_pos, len);//modest goal
             return reached_pos;
         }
 
-        private List<Vector3> SteerLive(Vector3 from_v, Vector3 to_v, Vector3 from_vel, float from_orientation = 0f, bool plan = false)
+        private List<Vector3> SteerCar(Vector3 from_v, Vector3 to_v, float prev_angle = (float) Math.PI*0.5f, bool plan = true)
         {
+            Debug.Log("PREV ANG " + (prev_angle * 180f / (float)Math.PI).ToString());
+            float max_plan_steer = 20f * (float)Math.PI / 180f;
+            float angle = (float)Math.Atan2(to_v.z - from_v.z, to_v.x - from_v.x);
+            Debug.Log("ANG " + (angle * 180f / (float)Math.PI).ToString());
+            float ang_dif = -(angle - prev_angle);
+            float next_angle;
+            Vector3 reached_pos;
+            Vector3 step_vec;
+            ang_dif = KinematicCarModel.NormalizeAngle(ang_dif);
+            Debug.Log("ANG DIF" + (ang_dif * 180f / (float)Math.PI).ToString());
+            if (ang_dif < -max_plan_steer)
+            {
+                next_angle = KinematicCarModel.NormalizeAngle(prev_angle + max_plan_steer);
+                step_vec = new Vector3((float)Math.Cos(next_angle), 0f, (float)Math.Sin(next_angle));
+                reached_pos = from_v + step_vec.normalized * plan_steer_k;
+            }
+            else
+            {
+                if (ang_dif > max_plan_steer)
+                {
+                    next_angle = KinematicCarModel.NormalizeAngle(prev_angle - max_plan_steer);
+                    step_vec = new Vector3((float)Math.Cos(next_angle), 0f, (float)Math.Sin(next_angle));
+                    reached_pos = from_v + step_vec.normalized * plan_steer_k;
+                }
+                else
+                {
+                    next_angle = angle;
+                    reached_pos = to_v; 
+                }
+            }
+            /*
             if (plan && Vector3.Distance(from_v, to_v) > plan_steer_k)
             {
                 to_v = Vector3.MoveTowards(from_v, to_v, plan_steer_k);//modest goal
             }
-            //Debug.Log("Steeeer");
-            float dt = Time.fixedDeltaTime;
-            float max_spd = m_Car.MaxSpeed * limitation;
-            if ((Vector3.Distance(from_v, to_v) >= 0.9f * plan_steer_k) && false)
-            {
-                max_spd += m_Car.MaxSpeed * ((1f - limitation) / 2f);
-            }
-            float max_acc = max_spd;
-            Vector3 target_vel = (to_v - from_v) / dt;
-            Vector3 true_vel;
-            if (target_vel.magnitude > max_spd)
-            {
-                target_vel = target_vel.normalized * max_spd;
-            }
-            Vector3 target_acc = (target_vel - from_vel) / dt;
-            Vector3 true_acc = Vector3.zero;
-            if (target_acc.magnitude > max_acc)
-            {
-                //target acceleration becomes actual acceleration
-                true_acc = target_acc.normalized * max_acc;
-            }
-            else
-            {
-                true_acc = target_acc;
-            }
-            //Debug.Log("100x acc we get:" + (100f*true_acc).ToString());
-            true_vel = from_vel + dt * true_acc;
-            if (true_vel.magnitude > max_spd)
-            {
-                true_vel = true_vel.normalized * max_spd;
-            }
-            Vector3 reached_pos = from_v + dt * true_vel;
-            Vector3 input = true_acc / max_acc; //matching true acc for weird multplication by max_acc in DroneController
-
-            List<Vector3> Dynamics = new List<Vector3> { reached_pos, true_vel, input };
+            */
+            Debug.Log("NEXT ANG " + (next_angle * 180f / (float)Math.PI).ToString());
+            Debug.Log("PREV POS " + from_v.ToString());
+            Debug.Log("REACHED POS " + reached_pos.ToString());
+            List<Vector3> Dynamics = new List<Vector3> { reached_pos, Vector3.zero, next_angle*Vector3.one};
             return Dynamics;       // Return all data for the reached node
         }
+
 
         private bool CheckCollision(PathTree source, Vector3 target_pos)
         {
@@ -194,7 +202,7 @@ namespace UnityStandardAssets.Vehicles.Car
 
         private List<PathTree> GetNeighbors(PathTree source)
         {
-            float search_radius = 2f;                                              // TODO: Experiment with this value.
+            float search_radius = 5f;                                              // TODO: Experiment with this value.
             float dist;
             List<PathTree> neighbors = new List<PathTree>();
             foreach (KeyValuePair<Vector3, PathTree> kvp in PathTree.node_dict)
@@ -234,6 +242,11 @@ namespace UnityStandardAssets.Vehicles.Car
 
             // - Find control inputs u to steer the robot from b to a.
             // - Apply control inputs u for time t, so robot reaches c.
+            //if(b.GetPosition() == terrain_root && (Vector3.Distance(b.GetPosition(), a_pos) < MTR*2f || Vector3.Distance(b.GetPosition(), a_pos) > MTR * 2f + 1f))//get only points at least as far as the min turning radius x2 and less than that plus one
+            if(Vector3.Distance(a_pos, terrain_root) < MTR * 2f || (b.GetPosition() == terrain_root && (Vector3.Distance(b.GetPosition(), a_pos) < MTR * 2f || Vector3.Distance(b.GetPosition(), a_pos) > MTR * 2f + 1f)))
+            {
+                return null;
+            }
             Vector3 c_pos = EasySteer(b, a_pos);
 
             // - If no collisions occur in getting from b to c:
@@ -243,33 +256,36 @@ namespace UnityStandardAssets.Vehicles.Car
                 float b_to_c_cost = GetDistance(b.GetPosition(), c_pos);
                 PathTree c = b.AddChild(c_pos, 0.0f, 0.0f, b_to_c_cost);
                 ///*
-                //      - Find set of Neighbors N of c.
-                List<PathTree> c_neighbors = GetNeighbors(c);
-
-                //      - Choose Best parent.
-                PathTree best_parent = b;
-                float c_cost_min = c.GetCost();
-
-                foreach (PathTree c_neighbor in c_neighbors)
+                if (Vector3.Distance(c_pos, terrain_root) > MTR * 2f)//adopt and switch parents only if  nodes involved are sufficiently far away from the root
                 {
-                    float neighbor_to_c_cost = GetDistance(c_neighbor.GetPosition(), c.GetPosition());
-                    float c_cost_new = c_neighbor.GetCost() + neighbor_to_c_cost;
-                    if (CheckCollision(c_neighbor, c.GetPosition()) is false && c_cost_new < c_cost_min)
+                    //      - Find set of Neighbors N of c.
+
+                    List<PathTree> c_neighbors = GetNeighbors(c);
+                    //      - Choose Best parent.
+                    PathTree best_parent = b;
+                    float c_cost_min = c.GetCost();
+
+                    foreach (PathTree c_neighbor in c_neighbors)
                     {
-                        best_parent = c_neighbor;
-                        c_cost_min = c_cost_new;
+                        float neighbor_to_c_cost = GetDistance(c_neighbor.GetPosition(), c.GetPosition());
+                        float c_cost_new = c_neighbor.GetCost() + neighbor_to_c_cost;
+                        if (CheckCollision(c_neighbor, c.GetPosition()) is false && c_cost_new < c_cost_min && Vector3.Distance(c_neighbor.GetPosition(), terrain_root) > MTR * 2f)
+                        {
+                            best_parent = c_neighbor;
+                            c_cost_min = c_cost_new;
+                        }
                     }
-                }
-                best_parent.AdoptChild(c, c_cost_min);
+                    best_parent.AdoptChild(c, c_cost_min);
 
-                //      - Try to adopt Neighbors (if good).
-                foreach (PathTree c_neighbor in c_neighbors)
-                {
-                    float c_to_neighbor_cost = GetDistance(c.GetPosition(), c_neighbor.GetPosition());
-                    float neighbor_cost_new = c.GetCost() + c_to_neighbor_cost;
-                    if (CheckCollision(c, c_neighbor.GetPosition()) is false && neighbor_cost_new < c_neighbor.GetCost())
+                    //      - Try to adopt Neighbors (if good).
+                    foreach (PathTree c_neighbor in c_neighbors)
                     {
-                        c.AdoptChild(c_neighbor, neighbor_cost_new);
+                        float c_to_neighbor_cost = GetDistance(c.GetPosition(), c_neighbor.GetPosition());
+                        float neighbor_cost_new = c.GetCost() + c_to_neighbor_cost;
+                        if (CheckCollision(c, c_neighbor.GetPosition()) is false && neighbor_cost_new < c_neighbor.GetCost() && Vector3.Distance(c_neighbor.GetPosition(), terrain_root) > MTR * 2f)
+                        {
+                            c.AdoptChild(c_neighbor, neighbor_cost_new);
+                        }
                     }
                 }
                 //*/
@@ -291,11 +307,13 @@ namespace UnityStandardAssets.Vehicles.Car
             // get the car controller
             m_Car = GetComponent<CarController>();
             terrain_manager = terrain_manager_game_object.GetComponent<TerrainManager>();
-
+            MTR = length / ((float)Math.Sin(m_Car.m_MaximumSteerAngle * (float)Math.PI / 180f)) + 2.5f;//Min turning radius + 2.5 units for slack
+            Debug.Log("MTR: " + MTR.ToString());
             // Plan your path here
 
             Vector3 start_pos = terrain_manager.myInfo.start_pos;
             Vector3 goal_pos = terrain_manager.myInfo.goal_pos;
+            terrain_root = start_pos;
 
             List<Vector3> my_path = new List<Vector3>();
 
@@ -325,42 +343,67 @@ namespace UnityStandardAssets.Vehicles.Car
             while (PathTree.node_dict.Count < tree_size)
             {
                 // - Pick a random point a in X.
+                total_iters++;
                 Vector3 a_pos;
                 //float a_orientation;
                 Vector3 rnd_pos;
+                float rnd_trav;
                 while (true)
                 {
-                    float x_rnd = Random.Range(x_low, x_high);
-                    float z_rnd = Random.Range(z_low, z_high);
-                    float p_rnd = Random.Range(0.0f, 1.0f);
-                    float rnd_trav;
-
-                    if (p_rnd < 0.05f)//bias the search towards the goal
+                    if(PathTree.node_dict.Count < 2)
                     {
-                        rnd_pos = goal_pos;
-                        rnd_trav = 0.0f;
-
-                    }
-                    else
-                    {
-                        int i_rnd = terrain_manager.myInfo.get_i_index(x_rnd);
-                        int j_rnd = terrain_manager.myInfo.get_j_index(z_rnd);
-                        rnd_pos = new Vector3(x_rnd, 0.0f, z_rnd);
+                        float x_r = Random.Range(-1f, 1f);
+                        float z_r = Random.Range(-1f, 1f);
+                        rnd_pos = new Vector3(x_r, 0f, z_r);
+                        rnd_pos = start_pos + rnd_pos.normalized * MTR * 2f;
+                        Debug.Log("REMEMBER ROOT " + start_pos.ToString());
+                        Debug.Log("WE (wanna) GO WITH " + rnd_pos.ToString());
+                        if (rnd_pos.x > x_high || rnd_pos.x < x_low || rnd_pos.z > z_high || rnd_pos.z < z_low)
+                        {
+                            Debug.Log("Try another day ");
+                            continue;
+                        }
+                        
+                        int i_rnd = terrain_manager.myInfo.get_i_index(rnd_pos.x);
+                        int j_rnd = terrain_manager.myInfo.get_j_index(rnd_pos.z);
                         rnd_trav = traversability[i_rnd, j_rnd];
 
+                    } else
+                    {
+                        float x_rnd = Random.Range(x_low, x_high);
+                        float z_rnd = Random.Range(z_low, z_high);
+                        float p_rnd = Random.Range(0.0f, 1.0f);
+                        
+
+                        if (p_rnd < 0.05f)//bias the search towards the goal
+                        {
+                            rnd_pos = goal_pos;
+                            rnd_trav = 0.0f;
+
+                        }
+                        else
+                        {
+                            int i_rnd = terrain_manager.myInfo.get_i_index(x_rnd);
+                            int j_rnd = terrain_manager.myInfo.get_j_index(z_rnd);
+                            rnd_pos = new Vector3(x_rnd, 0.0f, z_rnd);
+                            rnd_trav = traversability[i_rnd, j_rnd];
+
+                        }
                     }
+                   
 
                     if (rnd_trav == 0.0f && PathTree.GetNode(rnd_pos) is null)        // Non-obstacle and not already in tree.
                     {
+                        
                         a_pos = rnd_pos;
                         //a_orientation = Random.Range(0, 2 * (float)Math.PI);
                         break;
                     }
                 }
                 PathTree newest = RRTStarExpand(a_pos);
-                if (newest != null && Vector3.Distance(newest.GetPosition(), goal_pos) < goal_thresh)
+                if (newest != null && Vector3.Distance(newest.GetPosition(), goal_pos) < goal_thresh&& total_iters >3000)
                 {
-                    Debug.Log("close enough!");
+                    Debug.Log("close enough! ITERS: " + total_iters.ToString());
                     break;
                 }
             }
@@ -386,9 +429,61 @@ namespace UnityStandardAssets.Vehicles.Car
             else
             {
                 DrawRRT();                                                  // Draw the whole RRT* tree immediately.
-                DrawPath(goal);                                             // Draw the shortest path to goal immediately.
+                //DrawPath(goal);                                             // Draw the shortest path to goal immediately.
             }
             // ----------- /Draw RRT* Path -----------
+
+            //----------add dynamic constraints to path-----
+            /*
+            PathTree current = suboptimal_path.ElementAt(0);
+            PathTree nasta = suboptimal_path.ElementAt(1);
+            List<Vector3> reached = new List<Vector3>();
+            reached = SteerCar(current.GetPosition(), nasta.GetPosition());
+            List<Vector3> opt_root = new List<Vector3> { current.GetPosition(), Vector3.zero, (float)Math.PI *0.5f*Vector3.one};
+            optimal_path.AddLast(opt_root);
+            optimal_path.AddLast(reached);
+            for (int k = 1; k < suboptimal_path.Count - 1; k++)
+            {
+                nasta = suboptimal_path.ElementAt(k);
+                while (Vector3.Distance(reached[0], nasta.GetPosition()) > optimal_k) //&& (Vector3.Distance(reached[0], goal.GetPosition()) > (Vector3.Distance(nasta.GetPosition(), goal.GetPosition()))))
+                {
+                    reached = SteerCar(reached[0], nasta.GetPosition(), reached[2].x, true);
+                    optimal_path.AddLast(reached);
+                }
+                //reached = new List<Vector3> { nasta.GetPosition(), Vector3.zero, Vector3.zero };
+                //optimal_path.AddLast(reached);
+            }
+            */
+            //OPTIMAL = SUBOPT:
+            PathTree current = suboptimal_path.ElementAt(0);
+            PathTree nasta = suboptimal_path.ElementAt(1);
+            List<Vector3> reached = new List<Vector3>();
+            List<Vector3> opt_root = new List<Vector3> { current.GetPosition(), Vector3.zero, (float)Math.PI * 0.5f * Vector3.one };
+            optimal_path.AddLast(opt_root);
+            for (int k = 1; k < suboptimal_path.Count; k++)
+            {
+                nasta = suboptimal_path.ElementAt(k);
+                reached = new List<Vector3>{nasta.GetPosition(), Vector3.zero, Vector3.zero};
+                optimal_path.AddLast(reached);
+                //reached = new List<Vector3> { nasta.GetPosition(), Vector3.zero, Vector3.zero };
+                //optimal_path.AddLast(reached);
+            }
+
+
+
+            //----------add dynamic constraints to path-----
+            //---------draw obtained path------------------
+            Debug.Log("subopt root " + suboptimal_path.ElementAt(0).GetPosition());
+            Debug.Log("opt root " + optimal_path.ElementAt(0)[0]);
+
+            Debug.Log("subopt size " + suboptimal_path.Count);
+            Debug.Log("opt size " + optimal_path.Count);
+            for (int k = 1; k < optimal_path.Count - 1; k++)
+            {
+                Debug.DrawLine(optimal_path.ElementAt(k - 1)[0], optimal_path.ElementAt(k)[0], Color.green, 100f);
+            }
+
+            //---------draw obtained path------------------
 
         }
 
@@ -396,6 +491,7 @@ namespace UnityStandardAssets.Vehicles.Car
         private void FixedUpdate()
         {
             // Execute your path here.
+            ///*
             float dt = Time.fixedDeltaTime;
             float pi = (float)Math.PI;
             float max_steer = (m_Car.m_MaximumSteerAngle * pi) / 180f;
@@ -403,35 +499,36 @@ namespace UnityStandardAssets.Vehicles.Car
             float current_phi = m_Car.CurrentSteerAngle;
             float limit = limitation * (1 - current_vel / m_Car.MaxSpeed);
 
-
-            
-            
-
-
             Vector3 true_pos = new Vector3(transform.position.x, 0f, transform.position.z);
             //Debug.Log("transform: " + (transform.position*100f).ToString());
             //Debug.Log("tr pos: " + (true_pos*100f).ToString());
-
-            if (update_count == 0)
+            
+            if (pwm_count == 0)
             {
                
                 MyOldPos = true_pos;
                 //Debug.Log("OUR ROOT:" + (suboptimal_path.ElementAt(update_count).GetPosition()).ToString());
             }
-            if (update_count < suboptimal_path.Count - 1)
+            if (update_count < optimal_path.Count - 1)//suboptimal_path.Count - 1)
             {
-                current_car = suboptimal_path.ElementAt(update_count);
-                next_car = suboptimal_path.ElementAt(update_count + 1);
-                if (Vector3.Distance(next_car.GetPosition(), true_pos) < optimal_k)
+                current_car = optimal_path.ElementAt(update_count);//suboptimal_path.ElementAt(update_count);
+                next_car = optimal_path.ElementAt(update_count);//suboptimal_path.ElementAt(update_count + 1);
+                if (Vector3.Distance(next_car[0], true_pos) < optimal_k)//next_car.GetPosition(), true_pos) < optimal_k)
                 {
                     update_count++;
+                    
+                    if (update_count == 5)
+                    {
+                        optimal_k = 0.65f * optimal_k;
+                    }
+                    
                 }
                 
             }
             else
             {
-                next_car = suboptimal_path.ElementAt(suboptimal_path.Count - 1);
-                if(Vector3.Distance(true_pos, next_car.GetPosition()) < goal_thresh*5)
+                next_car = optimal_path.ElementAt(optimal_path.Count - 1);//suboptimal_path.ElementAt(suboptimal_path.Count - 1);
+                if (Vector3.Distance(true_pos, next_car[0]) < goal_thresh*8) //next_car.GetPosition()) < goal_thresh*5)
                 {
                     pwm_switch = true;
                 }
@@ -442,17 +539,25 @@ namespace UnityStandardAssets.Vehicles.Car
             MyOldPos = true_pos;
             //Debug.Log("current vel x100" + (100f * MyVelocity).ToString());
             //Debug.Log("true pos before moves x100" + (100f*true_pos).ToString());
-            Vector3 current_pos = current_car.GetPosition();
-            Vector3 target_pos = next_car.GetPosition();
-            //Debug.Log("target pos x100" + (100f * target_pos).ToString());
-            Vector3 input = SteerLive(true_pos, target_pos, MyVelocity)[2]; 
+            Vector3 current_pos = current_car[0];//current_car.GetPosition();
+            Vector3 target_pos = next_car[0];//next_car.GetPosition();
+            Debug.Log("UPDATE COUNT" + (update_count).ToString());
+            Debug.Log("target pos x100" + (100f * target_pos).ToString());
+            //Vector3 input = SteerLive(true_pos, target_pos, MyVelocity)[2]; 
             float turn;
-            
+
             //Debug.Log("mock difference: " + ((float)Math.Atan2(10f - 5f, 0f - 5f) * 180f / pi).ToString());
+            float atang = (float)Math.Atan2(target_pos.z - true_pos.z, target_pos.x - true_pos.x);
             float ang_dif = -((float)Math.Atan2(target_pos.z - true_pos.z, target_pos.x - true_pos.x) - global_ori);
+            //total_error += ang_dif*dt;
+            Debug.Log("ATANG  " + ((atang * 180f) / pi).ToString());
             Debug.Log("ANG  DIF  " + ((ang_dif * 180f) / pi).ToString());
             ang_dif = KinematicCarModel.NormalizeAngle(ang_dif);
             Debug.Log("ANG  DIF PROCESSED  " + ((ang_dif * 180f) / pi).ToString());
+            if(ang_dif > 145f * pi / 180f && update_count < 2)//Avoid going crazy when objective is behind the car
+            {
+                ang_dif = -ang_dif;
+            }
             if (ang_dif < -max_steer)
             {
                 turn = -m_Car.m_MaximumSteerAngle;
@@ -468,11 +573,18 @@ namespace UnityStandardAssets.Vehicles.Car
                     turn = (ang_dif*180f)/pi;
                 }
             }
-            
+
             //This is how you control the car:
             //Debug.Log("acc we send x100" + (100f*input).ToString());
             //Debug.Log("turn we get x100  " + (100f * turn).ToString());
-            if(Math.Abs(global_ori - prev_ori) > 5f * pi / 180f)
+            /*
+            if (Math.Abs(global_ori - prev_ori) > 0.5f* pi)//have to turn around!
+            {
+                turn_360 = true;
+            }
+            */
+
+            if (Math.Abs(global_ori - prev_ori) > 0.5f * pi / 180f)//constant speed: turning or going straight?
             {
                 pwm = pwm_turn;
             }
@@ -493,17 +605,17 @@ namespace UnityStandardAssets.Vehicles.Car
                 
             }
 
-            Debug.Log("vel " + (current_vel).ToString());
-            Debug.Log("MyVel " + (MyVelocity.magnitude).ToString());
-            Debug.Log("steer from model  " + (current_phi).ToString());
+            //Debug.Log("vel " + (current_vel).ToString());
+            //Debug.Log("MyVel " + (MyVelocity.magnitude).ToString());
+            //Debug.Log("steer from model  " + (current_phi).ToString());
             float dtheta = -(MyVelocity.magnitude / length) * (float)Math.Tan((current_phi * pi / 180f)) * dt;//-(current_phi * pi / 180f) * dt;//
-            Debug.Log("dtheta  " + (dtheta * 180f / pi).ToString());
+            //Debug.Log("dtheta  " + (dtheta * 180f / pi).ToString());
             prev_ori = global_ori;
             global_ori += dtheta;
             global_ori = KinematicCarModel.NormalizeAngle(global_ori);
             //Debug.Log("true pos after moves 100x" + (100f*transform.position).ToString());
             pwm_count++;
-            
+            //*/
 
         }
 
